@@ -21,6 +21,8 @@ uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 rand = "0.8"
 unicode-width = "0.2"
+nix = { version = "0.31", features = ["term", "signal", "process"] }
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
