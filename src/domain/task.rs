@@ -142,11 +142,25 @@ impl TaskLink {
                 }
             }
         }
-        if self.url.len() > 40 {
-            format!("{}...", &self.url[..37])
-        } else {
-            self.url.clone()
+        // Extract domain name without TLD (e.g., "google.com" -> "google")
+        if let Some(host) = self.url
+            .split("://")
+            .nth(1)
+            .unwrap_or(&self.url)
+            .split('/')
+            .next()
+        {
+            let host = host.trim_start_matches("www.");
+            if let Some(domain) = host.split('.').next() {
+                let domain = if domain.len() > 10 {
+                    format!("{}...", &domain[..10])
+                } else {
+                    domain.to_string()
+                };
+                return domain;
+            }
         }
+        self.url.clone()
     }
 }
 

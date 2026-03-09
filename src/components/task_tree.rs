@@ -262,7 +262,8 @@ impl TaskTree {
                     };
                     let session_indicator = if *has_session { "⚡" } else { "  " };
                     let link_text = if !links.is_empty() {
-                        format!(" 🔗{}", links.first().map(|l| l.display()).unwrap_or_default())
+                        let displays: Vec<String> = links.iter().map(|l| l.display()).collect();
+                        format!(" 🔗{}", displays.join(","))
                     } else {
                         String::new()
                     };
