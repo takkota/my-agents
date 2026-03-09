@@ -1,0 +1,163 @@
+use super::input::{MultiSelectList, TextInput};
+use super::Modal;
+use crate::action::Action;
+use crate::error::AppResult;
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Color, Style};
+use ratatui::widgets::{Block, Borders, Clear};
+use ratatui::Frame;
+use std::path::PathBuf;
+
+enum Field {
+    Name,
+    Repos,
+}
+
+pub struct CreateProjectModal {
+    name_input: TextInput,
+    repo_list: MultiSelectList<PathBuf>,
+    current_field: Field,
+}
+
+impl CreateProjectModal {
+    pub fn new(available_repos: Vec<PathBuf>) -> Self {
+        let repo_items: Vec<(String, PathBuf)> = available_repos
+            .into_iter()
+            .map(|p| {
+                let display = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                (display, p)
+            })
+            .collect();
+
+        let mut name_input = TextInput::new("Project Name (alphanumeric, hyphens)");
+        name_input.focused = true;
+
+        Self {
+            name_input,
+            repo_list: MultiSelectList::new("Git Repositories (Space to toggle)", repo_items),
+            current_field: Field::Name,
+        }
+    }
+
+    fn next_field(&mut self) {
+        match self.current_field {
+            Field::Name => {
+                self.current_field = Field::Repos;
+                self.name_input.focused = false;
+                self.repo_list.focused = true;
+            }
+            Field::Repos => {
+                self.current_field = Field::Name;
+                self.name_input.focused = true;
+                self.repo_list.focused = false;
+            }
+        }
+    }
+
+    fn validate_name(name: &str) -> bool {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    }
+}
+
+impl Modal for CreateProjectModal {
+    fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        match key.code {
+            KeyCode::Esc => Ok(Some(Action::CloseModal)),
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.next_field();
+                Ok(None)
+            }
+            KeyCode::Enter => {
+                if !Self::validate_name(&self.name_input.value) {
+                    return Ok(None);
+                }
+                let repos: Vec<(String, PathBuf)> = self
+                    .repo_list
+                    .selected_values()
+                    .into_iter()
+                    .map(|p| {
+                        let name = p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        (name, p.clone())
+                    })
+                    .collect();
+
+                Ok(Some(Action::CreateProject {
+                    name: self.name_input.value.clone(),
+                    repos,
+                }))
+            }
+            _ => {
+                match self.current_field {
+                    Field::Name => match key.code {
+                        KeyCode::Char(c) => {
+                            self.name_input.insert_char(c);
+                        }
+                        KeyCode::Backspace => {
+                            self.name_input.delete_char();
+                        }
+                        KeyCode::Left => self.name_input.move_left(),
+                        KeyCode::Right => self.name_input.move_right(),
+                        _ => {}
+                    },
+                    Field::Repos => match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => self.repo_list.move_up(),
+                        KeyCode::Down | KeyCode::Char('j') => self.repo_list.move_down(),
+                        KeyCode::Char(' ') => self.repo_list.toggle(),
+                        KeyCode::Backspace => {
+                            self.repo_list.filter_text.pop();
+                            self.repo_list.cursor = 0;
+                        }
+                        KeyCode::Char(c)
+                            if !matches!(c, 'j' | 'k') =>
+                        {
+                            self.repo_list.filter_text.push(c);
+                            self.repo_list.cursor = 0;
+                        }
+                        _ => {}
+                    },
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(Clear, area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" New Project ")
+            .border_style(Style::default().fg(Color::Cyan));
+        frame.render_widget(block, area);
+
+        let inner = area.inner(ratatui::layout::Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
+
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(5),
+        ])
+        .split(inner);
+
+        self.name_input.render(frame, chunks[0]);
+        self.repo_list.render(frame, chunks[1]);
+    }
+
+    fn title(&self) -> &str {
+        "New Project"
+    }
+}

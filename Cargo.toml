@@ -1,0 +1,26 @@
+[package]
+name = "my-agents"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "my-agents"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+rand = "0.8"
+unicode-width = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
