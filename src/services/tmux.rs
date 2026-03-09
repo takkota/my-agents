@@ -185,8 +185,8 @@ fn run_attach_proxy(master: &OwnedFd, child: nix::unistd::Pid) -> AppResult<()> 
 
     let result = io_loop(master_fd, child, stdin_fd);
 
-    // Restore terminal state
-    termios::tcsetattr(&stdin_borrowed, termios::SetArg::TCSANOW, &orig_termios)?;
+    // Always restore terminal state, even if io_loop failed
+    let _ = termios::tcsetattr(&stdin_borrowed, termios::SetArg::TCSANOW, &orig_termios);
 
     result
 }
@@ -195,6 +195,7 @@ fn run_attach_proxy(master: &OwnedFd, child: nix::unistd::Pid) -> AppResult<()> 
 fn io_loop(master_fd: i32, child: nix::unistd::Pid, stdin_fd: i32) -> AppResult<()> {
     let mut stdin_buf = [0u8; 4096];
     let mut master_buf = [0u8; 4096];
+    let mut last_ws = get_winsize(stdin_fd);
 
     loop {
         // Check if child is still alive
@@ -221,13 +222,15 @@ fn io_loop(master_fd: i32, child: nix::unistd::Pid, stdin_fd: i32) -> AppResult<
         if n < 0 {
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::Interrupted {
-                copy_winsize(stdin_fd, master_fd);
+                // EINTR likely from SIGWINCH — sync window size
+                sync_winsize(stdin_fd, master_fd, &mut last_ws);
                 continue;
             }
             anyhow::bail!("poll error: {}", err);
         }
         if n == 0 {
-            copy_winsize(stdin_fd, master_fd);
+            // Timeout — check for window size changes
+            sync_winsize(stdin_fd, master_fd, &mut last_ws);
             continue;
         }
 
@@ -274,6 +277,18 @@ fn io_loop(master_fd: i32, child: nix::unistd::Pid, stdin_fd: i32) -> AppResult<
     Ok(())
 }
 
+/// Get current terminal window size.
+fn get_winsize(fd: i32) -> (u16, u16) {
+    unsafe {
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) == 0 {
+            (ws.ws_col, ws.ws_row)
+        } else {
+            (0, 0)
+        }
+    }
+}
+
 /// Copy terminal window size from src_fd to dst_fd.
 fn copy_winsize(src_fd: i32, dst_fd: i32) {
     unsafe {
@@ -281,5 +296,14 @@ fn copy_winsize(src_fd: i32, dst_fd: i32) {
         if libc::ioctl(src_fd, libc::TIOCGWINSZ, &mut ws) == 0 {
             libc::ioctl(dst_fd, libc::TIOCSWINSZ, &ws);
         }
+    }
+}
+
+/// Sync window size only if it changed since last check.
+fn sync_winsize(src_fd: i32, dst_fd: i32, last: &mut (u16, u16)) {
+    let current = get_winsize(src_fd);
+    if current != *last {
+        copy_winsize(src_fd, dst_fd);
+        *last = current;
     }
 }
