@@ -131,38 +131,8 @@ impl Modal for CreateProjectModal {
             }
             _ => {
                 match self.current_field {
-                    Field::Name => match key.code {
-                        KeyCode::Char(c) => {
-                            self.name_input.insert_char(c);
-                        }
-                        KeyCode::Backspace => {
-                            self.name_input.delete_char();
-                        }
-                        KeyCode::Delete => {
-                            self.name_input.delete_forward_char();
-                        }
-                        KeyCode::Left => self.name_input.move_left(),
-                        KeyCode::Right => self.name_input.move_right(),
-                        KeyCode::Home => self.name_input.move_to_start(),
-                        KeyCode::End => self.name_input.move_to_end(),
-                        _ => {}
-                    },
-                    Field::CopyFiles => match key.code {
-                        KeyCode::Char(c) => {
-                            self.copy_files_input.insert_char(c);
-                        }
-                        KeyCode::Backspace => {
-                            self.copy_files_input.delete_char();
-                        }
-                        KeyCode::Delete => {
-                            self.copy_files_input.delete_forward_char();
-                        }
-                        KeyCode::Left => self.copy_files_input.move_left(),
-                        KeyCode::Right => self.copy_files_input.move_right(),
-                        KeyCode::Home => self.copy_files_input.move_to_start(),
-                        KeyCode::End => self.copy_files_input.move_to_end(),
-                        _ => {}
-                    },
+                    Field::Name => { self.name_input.handle_key(key); },
+                    Field::CopyFiles => { self.copy_files_input.handle_key(key); },
                     Field::Repos => match key.code {
                         KeyCode::Up => self.repo_list.move_up(),
                         KeyCode::Down => self.repo_list.move_down(),

@@ -1,3 +1,4 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -85,6 +86,42 @@ impl TextInput {
 
     pub fn move_to_end(&mut self) {
         self.cursor = self.value.chars().count();
+    }
+
+    pub fn delete_to_start(&mut self) {
+        if self.cursor > 0 {
+            let byte_pos = self.byte_offset();
+            self.value.drain(..byte_pos);
+            self.cursor = 0;
+        }
+    }
+
+    pub fn delete_to_end(&mut self) {
+        let byte_pos = self.byte_offset();
+        self.value.truncate(byte_pos);
+    }
+
+    /// Handle common text editing key events. Returns true if the key was handled.
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char('u') => self.delete_to_start(),
+                KeyCode::Char('k') => self.delete_to_end(),
+                _ => return false,
+            }
+            return true;
+        }
+        match key.code {
+            KeyCode::Char(c) => self.insert_char(c),
+            KeyCode::Backspace => self.delete_char(),
+            KeyCode::Delete => self.delete_forward_char(),
+            KeyCode::Left => self.move_left(),
+            KeyCode::Right => self.move_right(),
+            KeyCode::Home => self.move_to_start(),
+            KeyCode::End => self.move_to_end(),
+            _ => return false,
+        }
+        true
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {

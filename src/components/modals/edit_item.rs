@@ -165,26 +165,8 @@ impl Modal for EditProjectModal {
             }
             _ => {
                 match self.current_field {
-                    ProjectField::Name => match key.code {
-                        KeyCode::Char(c) => self.name_input.insert_char(c),
-                        KeyCode::Backspace => self.name_input.delete_char(),
-                        KeyCode::Delete => self.name_input.delete_forward_char(),
-                        KeyCode::Left => self.name_input.move_left(),
-                        KeyCode::Right => self.name_input.move_right(),
-                        KeyCode::Home => self.name_input.move_to_start(),
-                        KeyCode::End => self.name_input.move_to_end(),
-                        _ => {}
-                    },
-                    ProjectField::CopyFiles => match key.code {
-                        KeyCode::Char(c) => self.copy_files_input.insert_char(c),
-                        KeyCode::Backspace => self.copy_files_input.delete_char(),
-                        KeyCode::Delete => self.copy_files_input.delete_forward_char(),
-                        KeyCode::Left => self.copy_files_input.move_left(),
-                        KeyCode::Right => self.copy_files_input.move_right(),
-                        KeyCode::Home => self.copy_files_input.move_to_start(),
-                        KeyCode::End => self.copy_files_input.move_to_end(),
-                        _ => {}
-                    },
+                    ProjectField::Name => { self.name_input.handle_key(key); },
+                    ProjectField::CopyFiles => { self.copy_files_input.handle_key(key); },
                     ProjectField::Repos => match key.code {
                         KeyCode::Up => self.repo_list.move_up(),
                         KeyCode::Down => self.repo_list.move_down(),
@@ -346,26 +328,8 @@ impl Modal for EditTaskModal {
             }
             _ => {
                 match self.current_field {
-                    TaskField::Name => match key.code {
-                        KeyCode::Char(c) => self.name_input.insert_char(c),
-                        KeyCode::Backspace => self.name_input.delete_char(),
-                        KeyCode::Delete => self.name_input.delete_forward_char(),
-                        KeyCode::Left => self.name_input.move_left(),
-                        KeyCode::Right => self.name_input.move_right(),
-                        KeyCode::Home => self.name_input.move_to_start(),
-                        KeyCode::End => self.name_input.move_to_end(),
-                        _ => {}
-                    },
-                    TaskField::Notes => match key.code {
-                        KeyCode::Char(c) => self.notes_input.insert_char(c),
-                        KeyCode::Backspace => self.notes_input.delete_char(),
-                        KeyCode::Delete => self.notes_input.delete_forward_char(),
-                        KeyCode::Left => self.notes_input.move_left(),
-                        KeyCode::Right => self.notes_input.move_right(),
-                        KeyCode::Home => self.notes_input.move_to_start(),
-                        KeyCode::End => self.notes_input.move_to_end(),
-                        _ => {}
-                    },
+                    TaskField::Name => { self.name_input.handle_key(key); },
+                    TaskField::Notes => { self.notes_input.handle_key(key); },
                     TaskField::Priority => match key.code {
                         KeyCode::Up | KeyCode::Char('k') => self.priority_list.move_up(),
                         KeyCode::Down | KeyCode::Char('j') => self.priority_list.move_down(),
