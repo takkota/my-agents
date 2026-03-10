@@ -5,6 +5,7 @@ use crate::error::AppResult;
 use anyhow::Context;
 use std::fs;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
 pub struct FsStore {
@@ -68,6 +69,41 @@ impl FsStore {
             && id != "."
             && id != ".."
             && !id.contains("..")
+    }
+
+    /// Compute a lightweight fingerprint of all task.json files.
+    /// Returns the maximum mtime (as duration since UNIX_EPOCH in millis)
+    /// combined with the total count of task files. Changes to either
+    /// value indicate external modifications.
+    pub fn data_fingerprint(&self) -> (u128, usize) {
+        let mut max_mtime: u128 = 0;
+        let mut count: usize = 0;
+
+        let Ok(projects) = fs::read_dir(&self.projects_dir) else {
+            return (0, 0);
+        };
+        for pentry in projects.flatten() {
+            let tasks_dir = pentry.path().join("tasks");
+            let Ok(tasks) = fs::read_dir(&tasks_dir) else {
+                continue;
+            };
+            for tentry in tasks.flatten() {
+                let json_path = tentry.path().join("task.json");
+                if let Ok(meta) = fs::metadata(&json_path) {
+                    count += 1;
+                    if let Ok(mtime) = meta.modified() {
+                        let millis = mtime
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        if millis > max_mtime {
+                            max_mtime = millis;
+                        }
+                    }
+                }
+            }
+        }
+        (max_mtime, count)
     }
 
     // Project operations

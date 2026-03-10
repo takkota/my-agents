@@ -70,6 +70,9 @@ pub struct App {
     pr_monitor: PrMonitor,
     tick_count: u64,
 
+    // Filesystem change detection
+    last_data_fingerprint: (u128, usize),
+
     // Error display
     pub error_message: Option<String>,
 }
@@ -131,10 +134,12 @@ impl App {
             agent_monitor,
             pr_monitor,
             tick_count: 0,
+            last_data_fingerprint: (0, 0),
             error_message: None,
         };
 
         app.reload_data()?;
+        app.last_data_fingerprint = app.store.data_fingerprint();
 
         // Re-generate Claude Code hooks for all existing Claude tasks
         // to ensure latest hook configuration (e.g. .manual_todo cleanup).
@@ -760,11 +765,22 @@ impl App {
                 self.preview_panel
                     .update_preview(session_name_owned.as_deref(), &self.tmux);
 
+                // Filesystem change detection: check every 3 seconds for external changes
+                // (e.g. tasks created via `ma-task` CLI)
+                let fs_check_interval_ticks = (3000 / self.config.tick_rate_ms).max(1);
+                let mut data_changed = false;
+                if self.tick_count % fs_check_interval_ticks == 0 {
+                    let fp = self.store.data_fingerprint();
+                    if fp != self.last_data_fingerprint {
+                        self.last_data_fingerprint = fp;
+                        data_changed = true;
+                    }
+                }
+
                 // Agent monitor: check every monitor_interval_secs
                 // tick_rate_ms=250 → 4 ticks/sec → interval_secs * 4 ticks
                 let agent_interval_ticks =
                     (self.config.monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
-                let mut data_changed = false;
 
                 if self.tick_count % agent_interval_ticks == 0 {
                     let agent_events = self.agent_monitor.check_all();
@@ -844,6 +860,7 @@ impl App {
                 if data_changed {
                     self.reload_data()?;
                     self.rebuild_tree();
+                    self.last_data_fingerprint = self.store.data_fingerprint();
                 }
             }
 
