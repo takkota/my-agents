@@ -194,10 +194,9 @@ cmd_create() {
 
     # Validate agent_cli
     case "$agent_cli" in
-        Claude|Codex|None|claude|codex|none)
-            # Normalize capitalization
-            agent_cli="$(echo "$agent_cli" | sed 's/^./\U&/')"
-            ;;
+        Claude|claude) agent_cli="Claude" ;;
+        Codex|codex) agent_cli="Codex" ;;
+        None|none) agent_cli="None" ;;
         *) die "invalid agent: ${agent_cli} (use Claude, Codex, or None)" ;;
     esac
 
