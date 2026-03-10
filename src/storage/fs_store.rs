@@ -138,15 +138,6 @@ impl FsStore {
     pub fn write_agent_config_files(&self, task: &Task) -> AppResult<()> {
         let dir = self.task_dir(&task.project_id, &task.id);
 
-        // Initialize git repo in task directory to bypass Claude Code workspace trust dialog.
-        // Non-git directories trigger an interactive trust prompt that blocks automated sessions.
-        if !dir.join(".git").exists() {
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(&dir)
-                .output()?;
-        }
-
         // Write CLAUDE.md with references
         let claude_lines: Vec<String> = task
             .worktrees
@@ -185,6 +176,59 @@ impl FsStore {
         if task.agent_cli == crate::domain::task::AgentCli::Claude {
             self.write_claude_hooks(task)?;
         }
+
+        // Mark the task directory as trusted in Claude Code's config
+        // to bypass the "Quick safety check" workspace trust dialog.
+        // Claude Code checks parent directories, so this covers the task dir.
+        Self::ensure_claude_trust(&dir)?;
+
+        Ok(())
+    }
+
+    /// Register a directory as trusted in `~/.claude.json` so Claude Code
+    /// skips the workspace trust dialog. Claude walks parent directories
+    /// when checking trust, so trusting a parent covers all children.
+    fn ensure_claude_trust(dir: &std::path::Path) -> AppResult<()> {
+        let claude_json_path = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+            .join(".claude.json");
+
+        let mut config: serde_json::Value = if claude_json_path.exists() {
+            let content = fs::read_to_string(&claude_json_path)?;
+            serde_json::from_str(&content)?
+        } else {
+            serde_json::json!({})
+        };
+
+        let dir_str = dir.to_string_lossy().to_string();
+        let projects = config
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("~/.claude.json is not an object"))?
+            .entry("projects")
+            .or_insert_with(|| serde_json::json!({}));
+
+        let project_entry = projects
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("projects is not an object"))?
+            .entry(&dir_str)
+            .or_insert_with(|| serde_json::json!({}));
+
+        if project_entry.get("hasTrustDialogAccepted") == Some(&serde_json::json!(true)) {
+            return Ok(());
+        }
+
+        project_entry
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("project entry is not an object"))?
+            .insert(
+                "hasTrustDialogAccepted".to_string(),
+                serde_json::json!(true),
+            );
+
+        fs::write(
+            &claude_json_path,
+            serde_json::to_string_pretty(&config)?,
+        )?;
 
         Ok(())
     }
