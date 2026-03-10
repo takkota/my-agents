@@ -872,6 +872,7 @@ impl App {
             worktrees: Vec::new(),
             links,
             notes,
+            initial_instructions: initial_instructions.clone(),
             tmux_session: None,
             created_at: now,
             updated_at: now,
@@ -1074,9 +1075,9 @@ impl App {
                     .and_then(|tasks| tasks.iter().find(|t| t.id == *id));
                 if let Some(task) = task {
                     self.preview_panel
-                        .update_task_info(task.links.clone(), task.notes.clone());
+                        .update_task_info(task.links.clone(), task.notes.clone(), task.initial_instructions.clone());
                 } else {
-                    self.preview_panel.update_task_info(Vec::new(), None);
+                    self.preview_panel.update_task_info(Vec::new(), None, None);
                 }
             }
             Some(TreeItem::Project { id, name, .. }) => {
@@ -1122,7 +1123,7 @@ impl App {
                     });
             }
             None => {
-                self.preview_panel.update_task_info(Vec::new(), None);
+                self.preview_panel.update_task_info(Vec::new(), None, None);
             }
         }
     }

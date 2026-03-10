@@ -36,6 +36,7 @@ pub struct PreviewPanel {
     current_session: Option<String>,
     task_links: Vec<TaskLink>,
     task_notes: Option<String>,
+    task_initial_instructions: Option<String>,
     project_info: Option<ProjectInfo>,
 }
 
@@ -46,13 +47,15 @@ impl PreviewPanel {
             current_session: None,
             task_links: Vec::new(),
             task_notes: None,
+            task_initial_instructions: None,
             project_info: None,
         }
     }
 
-    pub fn update_task_info(&mut self, links: Vec<TaskLink>, notes: Option<String>) {
+    pub fn update_task_info(&mut self, links: Vec<TaskLink>, notes: Option<String>, initial_instructions: Option<String>) {
         self.task_links = links;
         self.task_notes = notes;
+        self.task_initial_instructions = initial_instructions;
         self.project_info = None;
     }
 
@@ -60,6 +63,7 @@ impl PreviewPanel {
         self.project_info = Some(info);
         self.task_links = Vec::new();
         self.task_notes = None;
+        self.task_initial_instructions = None;
     }
 
     pub fn update_preview(&mut self, session_name: Option<&str>, tmux: &TmuxService) {
@@ -81,7 +85,7 @@ impl PreviewPanel {
     }
 
     fn has_task_info(&self) -> bool {
-        !self.task_links.is_empty() || self.task_notes.is_some()
+        !self.task_links.is_empty() || self.task_notes.is_some() || self.task_initial_instructions.is_some()
     }
 
     fn render_task_info(&self, frame: &mut Frame, area: Rect) {
@@ -116,7 +120,7 @@ impl PreviewPanel {
 
         // Notes section
         if let Some(notes) = &self.task_notes {
-            if !self.task_links.is_empty() {
+            if !lines.is_empty() {
                 lines.push(Line::from(""));
             }
             lines.push(Line::from(vec![Span::styled(
@@ -129,6 +133,25 @@ impl PreviewPanel {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(note_line.to_string(), Style::default().fg(Color::White)),
+                ]));
+            }
+        }
+
+        // Initial Instructions section
+        if let Some(instructions) = &self.task_initial_instructions {
+            if !lines.is_empty() {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(vec![Span::styled(
+                " Initial Instructions: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+            for instr_line in instructions.lines() {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(instr_line.to_string(), Style::default().fg(Color::White)),
                 ]));
             }
         }

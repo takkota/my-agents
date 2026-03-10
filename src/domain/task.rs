@@ -190,6 +190,8 @@ pub struct Task {
     pub links: Vec<TaskLink>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
+    pub initial_instructions: Option<String>,
     pub tmux_session: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

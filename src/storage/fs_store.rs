@@ -528,6 +528,7 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
                  once you've created your own!"
                     .to_string(),
             ),
+            initial_instructions: None,
             tmux_session: None,
             created_at: now,
             updated_at: now,
