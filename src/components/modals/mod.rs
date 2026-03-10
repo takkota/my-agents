@@ -17,6 +17,7 @@ use ratatui::Frame;
 
 pub trait Modal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>>;
+    fn handle_paste(&mut self, _text: &str) {}
     fn render(&self, frame: &mut Frame, area: Rect);
     fn title(&self) -> &str;
 }

@@ -129,6 +129,22 @@ impl App {
             .rebuild(&self.projects, &self.tasks_by_project, &self.active_sessions);
     }
 
+    pub fn handle_paste_event(&mut self, text: &str) {
+        if let Some(modal) = &mut self.active_modal {
+            match modal {
+                ModalKind::CreateProject(m) => m.handle_paste(text),
+                ModalKind::CreateTask(m) => m.handle_paste(text),
+                ModalKind::EditItem(m) => m.handle_paste(text),
+                ModalKind::SetLink(m) => m.handle_paste(text),
+                ModalKind::SetStatus(m) => m.handle_paste(text),
+                ModalKind::SelectLink(m) => m.handle_paste(text),
+                ModalKind::Filter(m) => m.handle_paste(text),
+                ModalKind::Sort(m) => m.handle_paste(text),
+                ModalKind::ConfirmDelete(m) => m.handle_paste(text),
+            }
+        }
+    }
+
     pub fn handle_key_event(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         // Modal takes priority
         if let Some(modal) = &mut self.active_modal {

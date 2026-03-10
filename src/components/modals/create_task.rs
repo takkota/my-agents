@@ -190,6 +190,14 @@ impl Modal for CreateTaskModal {
         self.agent_list.render(frame, chunks[3]);
     }
 
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_field {
+            Field::Name => self.name_input.insert_paste(text),
+            Field::Notes => self.notes_input.insert_paste(text),
+            _ => {}
+        }
+    }
+
     fn title(&self) -> &str {
         "New Task"
     }

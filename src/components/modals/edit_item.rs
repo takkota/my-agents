@@ -22,6 +22,13 @@ impl Modal for EditItemModal {
         }
     }
 
+    fn handle_paste(&mut self, text: &str) {
+        match self {
+            EditItemModal::Project(m) => m.handle_paste(text),
+            EditItemModal::Task(m) => m.handle_paste(text),
+        }
+    }
+
     fn render(&self, frame: &mut Frame, area: Rect) {
         match self {
             EditItemModal::Project(m) => m.render(frame, area),
@@ -175,6 +182,13 @@ impl Modal for EditProjectModal {
         self.repo_list.render(frame, chunks[1]);
     }
 
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_field {
+            ProjectField::Name => self.name_input.insert_paste(text),
+            ProjectField::Repos => {}
+        }
+    }
+
     fn title(&self) -> &str {
         "Edit Project"
     }
@@ -292,6 +306,13 @@ impl Modal for EditTaskModal {
 
         self.name_input.render(frame, chunks[0]);
         self.notes_input.render(frame, chunks[1]);
+    }
+
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_field {
+            TaskField::Name => self.name_input.insert_paste(text),
+            TaskField::Notes => self.notes_input.insert_paste(text),
+        }
     }
 
     fn title(&self) -> &str {

@@ -114,6 +114,13 @@ impl Modal for SetLinkModal {
         self.name_input.render(frame, chunks[1]);
     }
 
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_field {
+            Field::Url => self.url_input.insert_paste(text),
+            Field::DisplayName => self.name_input.insert_paste(text),
+        }
+    }
+
     fn title(&self) -> &str {
         "Add Link"
     }
