@@ -100,6 +100,14 @@ impl AgentCli {
             AgentCli::None => None,
         }
     }
+
+    /// Returns the full launch command with CLI-specific flags.
+    pub fn launch_command(&self) -> Option<String> {
+        self.command().map(|cmd| match self {
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
+            _ => cmd.to_string(),
+        })
+    }
 }
 
 impl fmt::Display for AgentCli {

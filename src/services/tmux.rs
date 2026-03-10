@@ -118,9 +118,9 @@ impl TmuxService {
     }
 
     pub fn launch_agent(&self, session: &str, cli: &AgentCli) -> AppResult<()> {
-        if let Some(cmd) = cli.command() {
+        if let Some(cmd) = cli.launch_command() {
             Self::tmux_cmd()
-                .args(["send-keys", "-t", session, cmd, "Enter"])
+                .args(["send-keys", "-t", session, &cmd, "Enter"])
                 .output()?;
         }
         Ok(())

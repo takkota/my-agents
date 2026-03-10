@@ -199,29 +199,44 @@ impl FsStore {
             "hooks": {
                 "Stop": [
                     {
-                        "type": "command",
-                        "command": format!(
-                            "echo stop > {}",
-                            shell_escape(&signal_path_str)
-                        )
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "echo stop > {}",
+                                    shell_escape(&signal_path_str)
+                                )
+                            }
+                        ]
                     }
                 ],
                 "Notification": [
                     {
-                        "type": "command",
-                        "command": format!(
-                            "echo idle > {}",
-                            shell_escape(&signal_path_str)
-                        )
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "echo idle > {}",
+                                    shell_escape(&signal_path_str)
+                                )
+                            }
+                        ]
                     }
                 ],
                 "PreToolUse": [
                     {
-                        "type": "command",
-                        "command": format!(
-                            "rm -f {}",
-                            shell_escape(&signal_path_str)
-                        )
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "rm -f {}",
+                                    shell_escape(&signal_path_str)
+                                )
+                            }
+                        ]
                     }
                 ]
             }
@@ -268,7 +283,35 @@ impl FsStore {
             agent_cli: crate::domain::task::AgentCli::None,
             worktrees: vec![],
             links: vec![],
-            notes: None,
+            notes: Some(
+                "Welcome to my-agents!\n\
+                 \n\
+                 Quick Start:\n\
+                 \n\
+                 1. Press 'p' to create a new project\n\
+                    - Give it a name and add git repository paths\n\
+                 \n\
+                 2. Press 'a' to add a task to the project\n\
+                    - Choose an agent CLI (Claude, Codex, or None)\n\
+                    - A tmux session is created automatically\n\
+                 \n\
+                 3. Press Enter to attach to a task's session\n\
+                    - Work inside the tmux session\n\
+                    - Press Ctrl+Q to detach back to this screen\n\
+                 \n\
+                 Key Bindings:\n\
+                 \n\
+                   p - Create project    a - Add task\n\
+                   e - Edit item         d - Delete item\n\
+                   w - Create worktree   l - Add link\n\
+                   n - Edit notes        s - Cycle status\n\
+                   / - Filter tasks      ? - Show help\n\
+                   q - Quit\n\
+                 \n\
+                 Tip: You can delete this quickstart project\n\
+                 once you've created your own!"
+                    .to_string(),
+            ),
             tmux_session: None,
             created_at: now,
             updated_at: now,

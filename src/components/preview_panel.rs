@@ -85,10 +85,12 @@ impl PreviewPanel {
             lines.push(Line::from(vec![
                 Span::styled(" Notes: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             ]));
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(notes.as_str(), Style::default().fg(Color::White)),
-            ]));
+            for note_line in notes.lines() {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(note_line.to_string(), Style::default().fg(Color::White)),
+                ]));
+            }
         }
 
         let paragraph = Paragraph::new(lines)
@@ -128,13 +130,14 @@ impl PreviewPanel {
             if !self.task_links.is_empty() {
                 info_lines += 1 + self.task_links.len(); // header + links
             }
-            if self.task_notes.is_some() {
+            if let Some(notes) = &self.task_notes {
                 if !self.task_links.is_empty() {
                     info_lines += 1; // separator
                 }
-                info_lines += 2; // header + notes content
+                info_lines += 1 + notes.lines().count(); // header + notes lines
             }
-            let info_height = (info_lines as u16 + 2).min(area.height / 3); // +2 for borders
+            let max_ratio = if self.current_session.is_some() { 3 } else { 1 };
+            let info_height = (info_lines as u16 + 2).min(area.height / max_ratio); // +2 for borders
 
             let chunks = Layout::vertical([
                 Constraint::Length(info_height),
