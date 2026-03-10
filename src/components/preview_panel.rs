@@ -292,6 +292,25 @@ impl PreviewPanel {
         frame.render_widget(paragraph, area);
     }
 
+    /// Count the number of visual lines a text will occupy when wrapped to the given width.
+    /// Each raw line is counted as ceil(line_display_width / wrap_width), minimum 1.
+    fn count_wrapped_lines(text: &str, indent: usize, wrap_width: usize) -> usize {
+        if wrap_width == 0 {
+            return text.lines().count().max(1);
+        }
+        let effective_width = wrap_width.saturating_sub(indent).max(1);
+        text.lines()
+            .map(|line| {
+                let char_count = line.chars().count();
+                if char_count == 0 {
+                    1
+                } else {
+                    (char_count + effective_width - 1) / effective_width
+                }
+            })
+            .sum()
+    }
+
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         if self.project_info.is_some() {
             self.render_project_info(frame, area);
@@ -299,22 +318,30 @@ impl PreviewPanel {
         }
 
         if self.has_task_info() {
-            // Calculate info panel height
+            // Calculate info panel height accounting for line wrapping
+            // Available width inside borders (subtract 2 for left+right border)
+            let wrap_width = area.width.saturating_sub(2) as usize;
             let mut info_lines: usize = 0;
             if !self.task_links.is_empty() {
-                info_lines += 1 + self.task_links.len(); // header + links
+                info_lines += 1; // header
+                for link in &self.task_links {
+                    let display = link.display();
+                    let link_text_len = 2 + display.len() + 1 + 1 + link.url.len();
+                    let effective_width = wrap_width.max(1);
+                    info_lines += (link_text_len + effective_width - 1) / effective_width;
+                }
             }
             if let Some(notes) = &self.task_notes {
                 if info_lines > 0 {
                     info_lines += 1; // separator
                 }
-                info_lines += 1 + notes.lines().count(); // header + notes lines
+                info_lines += 1 + Self::count_wrapped_lines(notes, 2, wrap_width); // header + wrapped notes
             }
             if let Some(instructions) = &self.task_initial_instructions {
                 if info_lines > 0 {
                     info_lines += 1; // separator
                 }
-                info_lines += 1 + instructions.lines().count(); // header + instruction lines
+                info_lines += 1 + Self::count_wrapped_lines(instructions, 2, wrap_width); // header + wrapped instructions
             }
             let max_height = if self.current_session.is_some() {
                 area.height / 3
