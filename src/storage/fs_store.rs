@@ -384,20 +384,10 @@ impl FsStore {
         Ok(())
     }
 
-    /// Write `.claude/skills/task-management/SKILL.md` in the task directory.
-    fn write_claude_skill(&self, task: &Task) -> AppResult<()> {
-        let task_dir = self.task_dir(&task.project_id, &task.id);
-        let skill_dir = task_dir.join(".claude").join("skills").join("task-management");
-        fs::create_dir_all(&skill_dir)?;
-
-        let skill_md = format!(
-            r#"---
-name: task-management
-description: "Use when you need to check your task details, update task status, add links (PR/issue URLs), or create/list tasks in the project."
-allowed-tools: Bash
----
-
-# Task Management Skill
+    /// Generate the shared body of the task-management SKILL.md.
+    fn skill_body(task: &Task) -> String {
+        format!(
+            r#"# Task Management Skill
 
 You are working inside a **my-agents** managed session.
 
@@ -465,6 +455,23 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
 "#,
             task_id = task.id,
             project_id = task.project_id,
+        )
+    }
+
+    /// Write `.claude/skills/task-management/SKILL.md` in the task directory.
+    fn write_claude_skill(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+        let skill_dir = task_dir.join(".claude").join("skills").join("task-management");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: task-management\n\
+             description: \"Use when you need to check your task details, update task status, \
+             add links (PR/issue URLs), or create/list tasks in the project.\"\n\
+             allowed-tools: Bash\n\
+             ---\n\n{}",
+            Self::skill_body(task),
         );
 
         fs::write(skill_dir.join("SKILL.md"), skill_md)?;
@@ -481,79 +488,12 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
         fs::create_dir_all(&skill_dir)?;
 
         let skill_md = format!(
-            r#"---
-name: task-management
-description: Use when you need to check your task details, update task status, add links (PR/issue URLs), or create/list tasks in the project.
----
-
-# Task Management Skill
-
-You are working inside a **my-agents** managed session.
-
-- **Task ID**: `{task_id}`
-- **Project ID**: `{project_id}`
-
-## CLI: `ma-task`
-
-Use the `ma-task` command to manage tasks. Output is JSON.
-
-### Get current task info
-
-```bash
-ma-task current
-```
-
-### Update task status
-
-```bash
-ma-task status {task_id} <status>
-```
-
-Valid statuses:
-
-- **Todo** — Not started yet.
-- **InProgress** — Currently being worked on.
-- **InReview** — Waiting for user review or PR review. Set this when you finish your work.
-- **Completed** — All PRs merged and work fully done. Usually set automatically by the system.
-- **Blocked** — Stopped due to an external dependency. Do not set this automatically; only when you truly cannot proceed.
-
-### Add a link (PR, issue, etc.)
-
-```bash
-ma-task link {task_id} <url>
-ma-task link {task_id} <url> --name "PR #123"
-```
-
-### Get a specific task
-
-```bash
-ma-task get <task-id>
-```
-
-### List all tasks in this project
-
-```bash
-ma-task list --project {project_id}
-```
-
-### Create a new task
-
-```bash
-ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|None]
-```
-
-### Update task fields
-
-```bash
-ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
-```
-
-## Guidelines
-
-- After creating a PR, always add the link with `ma-task link`.
-"#,
-            task_id = task.id,
-            project_id = task.project_id,
+            "---\n\
+             name: task-management\n\
+             description: \"Use when you need to check your task details, update task status, \
+             add links (PR/issue URLs), or create/list tasks in the project.\"\n\
+             ---\n\n{}",
+            Self::skill_body(task),
         );
 
         fs::write(skill_dir.join("SKILL.md"), skill_md)?;

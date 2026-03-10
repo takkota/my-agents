@@ -19,8 +19,7 @@ need_cmd() {
 need_cmd jq
 
 now_iso() {
-    date -u +"%Y-%m-%dT%H:%M:%S%.NZ" 2>/dev/null \
-        || date -u +"%Y-%m-%dT%H:%M:%SZ"
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
 gen_id() {
@@ -358,14 +357,17 @@ cmd_link() {
         task_id="${found#*/}"
     fi
 
-    local dn_json="null"
-    [ -z "$display_name" ] || dn_json="\"${display_name}\""
-
     local json
     json="$(read_task "$project_id" "$task_id")"
-    json="$(echo "$json" | jq --arg url "$url" --argjson dn "$dn_json" \
-        --arg now "$(now_iso)" \
-        '.links += [{"url": $url, "display_name": $dn}] | .updated_at = $now')"
+    if [ -n "$display_name" ]; then
+        json="$(echo "$json" | jq --arg url "$url" --arg dn "$display_name" \
+            --arg now "$(now_iso)" \
+            '.links += [{"url": $url, "display_name": $dn}] | .updated_at = $now')"
+    else
+        json="$(echo "$json" | jq --arg url "$url" \
+            --arg now "$(now_iso)" \
+            '.links += [{"url": $url, "display_name": null}] | .updated_at = $now')"
+    fi
     write_task "$project_id" "$task_id" "$json"
     echo "$json"
 }
