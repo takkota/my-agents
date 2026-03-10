@@ -3,6 +3,7 @@ pub mod create_task;
 pub mod confirm_delete;
 pub mod set_status;
 pub mod set_link;
+pub mod select_link;
 pub mod edit_item;
 pub mod filter;
 pub mod sort;
