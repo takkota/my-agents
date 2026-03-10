@@ -167,8 +167,8 @@ impl TaskLink {
                 // No subdomain: take first part (e.g., "example.com" -> "example")
                 parts[0]
             };
-            let domain = if domain_part.len() > 10 {
-                format!("{}...", &domain_part[..10])
+            let domain = if domain_part.len() > 15 {
+                format!("{}...", &domain_part[..15])
             } else {
                 domain_part.to_string()
             };
