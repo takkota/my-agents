@@ -55,9 +55,12 @@ impl PreviewPanel {
 
         // Links section
         if !self.task_links.is_empty() {
-            lines.push(Line::from(vec![
-                Span::styled(" Links: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                " Links: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]));
             for link in &self.task_links {
                 let display = link.display();
                 let hyperlink = ratatui::text::Span::styled(
@@ -82,9 +85,12 @@ impl PreviewPanel {
             if !self.task_links.is_empty() {
                 lines.push(Line::from(""));
             }
-            lines.push(Line::from(vec![
-                Span::styled(" Notes: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                " Notes: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]));
             for note_line in notes.lines() {
                 lines.push(Line::from(vec![
                     Span::raw("  "),

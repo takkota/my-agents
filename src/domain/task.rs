@@ -150,7 +150,7 @@ impl TaskLink {
                 }
             }
         }
-        // Extract domain name without TLD (e.g., "google.com" -> "google")
+        // Extract second-level domain name (e.g., "sub.example.com" -> "example", "example.com" -> "example")
         if let Some(host) = self.url
             .split("://")
             .nth(1)
@@ -159,14 +159,20 @@ impl TaskLink {
             .next()
         {
             let host = host.trim_start_matches("www.");
-            if let Some(domain) = host.split('.').next() {
-                let domain = if domain.len() > 10 {
-                    format!("{}...", &domain[..10])
-                } else {
-                    domain.to_string()
-                };
-                return domain;
-            }
+            let parts: Vec<&str> = host.split('.').collect();
+            let domain_part = if parts.len() >= 3 {
+                // Has subdomain(s): take second-to-last part (e.g., "lcl-bus.myjetbrains.com" -> "myjetbrains")
+                parts[parts.len() - 2]
+            } else {
+                // No subdomain: take first part (e.g., "example.com" -> "example")
+                parts[0]
+            };
+            let domain = if domain_part.len() > 10 {
+                format!("{}...", &domain_part[..10])
+            } else {
+                domain_part.to_string()
+            };
+            return domain;
         }
         self.url.clone()
     }
