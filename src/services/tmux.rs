@@ -51,6 +51,12 @@ impl TmuxService {
             anyhow::bail!("Failed to create tmux session: {}", name);
         }
 
+        // Enable extended-keys so that modifier key sequences (e.g. Shift+Enter)
+        // are passed through to applications inside tmux
+        Self::tmux_cmd()
+            .args(["set-option", "-t", name, "extended-keys", "on"])
+            .output()?;
+
         // Add ~/.my-agents/bin to PATH so agents can use ma-task CLI
         let bin_dir = dirs::home_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
