@@ -84,15 +84,16 @@ async fn main() -> AppResult<()> {
                     match app.update(action) {
                         Ok(UpdateResult::Continue) => {}
                         Ok(UpdateResult::AttachSession(session_name)) => {
-                            // Stop event handler to release stdin before tmux attach
-                            events.stop().await;
+                            // Drop event handler to release stdin before tmux attach.
+                            // Drop is enough — it aborts the background task immediately.
                             drop(events);
                             tui::exit()?;
                             if let Err(e) = app.tmux.attach_session(&session_name) {
                                 app.error_message = Some(format!("tmux attach failed: {}", e));
                             }
+                            // Resume TUI and event handler first for instant visual feedback,
+                            // then reload data in background.
                             terminal = tui::resume()?;
-                            // Recreate event handler after resuming
                             events = EventHandler::new(config.tick_rate_ms);
                             app.reload_data()?;
                         }

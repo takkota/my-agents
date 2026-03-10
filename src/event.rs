@@ -74,15 +74,6 @@ impl EventHandler {
             .ok_or_else(|| anyhow::anyhow!("Event channel closed"))
     }
 
-    /// Stop the event handler by aborting the background task and waiting
-    /// for it to finish. Must be called before operations that need
-    /// exclusive access to stdin (e.g. tmux attach).
-    pub async fn stop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-            let _ = task.await;
-        }
-    }
 }
 
 impl Drop for EventHandler {

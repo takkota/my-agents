@@ -92,8 +92,16 @@ impl TmuxService {
                 drop(slave);
                 let result = run_attach_proxy(&master, child);
 
-                nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGHUP).ok();
-                nix::sys::wait::waitpid(child, None).ok();
+                // Use SIGKILL for instant termination — the tmux *session* is
+                // unaffected because we're only killing the attach client.
+                nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGKILL).ok();
+                // Non-blocking reap; the OS will clean up the zombie shortly if
+                // not reaped here.
+                nix::sys::wait::waitpid(
+                    child,
+                    Some(nix::sys::wait::WaitPidFlag::WNOHANG),
+                )
+                .ok();
 
                 result
             }
