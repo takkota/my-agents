@@ -1161,7 +1161,7 @@ impl App {
             let modal_area = centered_rect(60, 70, area);
             match modal {
                 ModalKind::CreateProject(m) => m.render(frame, modal_area),
-                ModalKind::CreateTask(m) => m.render(frame, centered_rect_with_max(60, 90, 80, 55, area)),
+                ModalKind::CreateTask(m) => m.render(frame, centered_rect_with_max(90, 90, 120, 55, area)),
                 ModalKind::EditItem(m) => m.render(frame, modal_area),
                 ModalKind::SetStatus(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::SetLink(m) => m.render(frame, centered_rect(50, 30, area)),
