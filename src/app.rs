@@ -596,10 +596,12 @@ impl App {
                 notes,
                 links,
             } => {
-                self.handle_create_task(project_id, name, priority, agent_cli, notes, links)?;
+                let task_id = self.handle_create_task(project_id.clone(), name, priority, agent_cli, notes, links)?;
                 self.active_modal = None;
                 self.reload_data()?;
+                self.task_tree.expanded.insert(project_id);
                 self.rebuild_tree();
+                self.task_tree.select_task_by_id(&task_id);
                 self.refresh_preview_task_info();
             }
             Action::UpdateTask {
@@ -823,7 +825,7 @@ impl App {
         agent_cli: AgentCli,
         notes: Option<String>,
         links: Vec<crate::domain::task::TaskLink>,
-    ) -> AppResult<()> {
+    ) -> AppResult<String> {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
             let candidate = Uuid::new_v4().to_string()[..8].to_string();
@@ -941,7 +943,7 @@ impl App {
 
         self.task_setup_rx.push(rx);
 
-        Ok(())
+        Ok(task_id)
     }
 
     /// Returns Some(session_name) if we should attach to a tmux session,

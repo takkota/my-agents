@@ -154,6 +154,12 @@ impl TaskTree {
         }
     }
 
+    pub fn select_task_by_id(&mut self, task_id: &str) {
+        if let Some(idx) = self.items.iter().position(|item| matches!(item, TreeItem::Task { id, .. } if id == task_id)) {
+            self.state.select(Some(idx));
+        }
+    }
+
     pub fn selected_item(&self) -> Option<&TreeItem> {
         self.state.selected().and_then(|i| self.items.get(i))
     }
