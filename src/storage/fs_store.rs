@@ -333,7 +333,7 @@ impl FsStore {
                             {
                                 "type": "command",
                                 "command": format!(
-                                    "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' >> {} || true",
+                                    "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' | grep -v '/owner/repo/' >> {} || true",
                                     shell_escape(&pr_links_path_str)
                                 )
                             }

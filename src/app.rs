@@ -1028,31 +1028,83 @@ impl App {
             TreeItem::Task {
                 id,
                 project_id,
-                has_session,
                 status,
                 ..
             } => {
-                if !has_session {
-                    return None;
-                }
-                let session_name = self
+                let task = self
                     .tasks_by_project
                     .get(&project_id)
                     .and_then(|tasks| tasks.iter().find(|t| t.id == id))
-                    .and_then(|t| t.tmux_session.clone());
+                    .cloned();
+                let task = task?;
 
-                let session_name = session_name.filter(|name| self.tmux.session_exists(name))?;
+                let session_name = task
+                    .tmux_session
+                    .clone()
+                    .unwrap_or_else(|| TmuxService::session_name(&project_id, &id));
 
-                // When attaching to a Completed task's session, reopen it as InProgress
-                if status == Status::Completed {
-                    let _ = self.update_task(&project_id, &id, |task| {
-                        task.reopened_at = Some(Utc::now());
-                        task.status = Status::InProgress;
-                        task.updated_at = Utc::now();
-                    });
+                // Helper closure: reopen Completed task as InProgress
+                let maybe_reopen = |app: &mut Self| {
+                    if status == Status::Completed {
+                        let _ = app.update_task(&project_id, &id, |task| {
+                            task.reopened_at = Some(Utc::now());
+                            task.status = Status::InProgress;
+                            task.updated_at = Utc::now();
+                        });
+                    }
+                };
+
+                // Session already exists – just attach
+                if self.tmux.session_exists(&session_name) {
+                    maybe_reopen(self);
+                    return Some(session_name);
                 }
 
-                Some(session_name)
+                // No active session – recreate it
+                if !TmuxService::is_available() {
+                    return None;
+                }
+                let task_dir = self.store.task_dir(&project_id, &id);
+                if !task_dir.exists() {
+                    return None;
+                }
+                match self.tmux.create_session(&session_name, &task_dir) {
+                    Ok(()) => {
+                        // Launch agent if configured
+                        if task.agent_cli != AgentCli::None {
+                            let prompt_file = task_dir.join(".initial_prompt");
+                            let prompt_path = if prompt_file.exists() {
+                                Some(prompt_file.as_path())
+                            } else {
+                                None
+                            };
+                            let _ = self.tmux.launch_agent(
+                                &session_name,
+                                &task.agent_cli,
+                                prompt_path,
+                            );
+                        }
+                        // Persist the session name if it wasn't stored yet
+                        if task.tmux_session.is_none() {
+                            if let Some(tasks) = self.tasks_by_project.get_mut(&project_id) {
+                                if let Some(t) = tasks.iter_mut().find(|t| t.id == id) {
+                                    t.tmux_session = Some(session_name.clone());
+                                    if let Err(e) = self.store.save_task(t) {
+                                        self.error_message = Some(format!("Failed to save task: {}", e));
+                                    }
+                                }
+                            }
+                        }
+                        self.active_sessions.insert(session_name.clone());
+                        self.rebuild_tree();
+                        maybe_reopen(self);
+                        Some(session_name)
+                    }
+                    Err(e) => {
+                        self.error_message = Some(format!("Failed to create tmux session: {}", e));
+                        None
+                    }
+                }
             }
         }
     }
