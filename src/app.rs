@@ -660,28 +660,13 @@ impl App {
                 project_id,
                 status,
             } => {
-                // Sync manual_todo marker with manual status changes on Claude tasks.
-                // When manually setting Todo, write marker so the monitor
-                // won't flip to InProgress until PreToolUse clears it.
+                // Clear .prompt_submitted marker when manually changing status,
+                // so the monitor won't override the manual change.
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
                         if task.agent_cli == AgentCli::Claude {
                             let task_dir = self.store.task_dir(&project_id, &task_id);
-                            let manual_todo_path = task_dir.join(".manual_todo");
-                            let todo_res = if status == Status::Todo {
-                                std::fs::write(&manual_todo_path, "manual\n")
-                            } else {
-                                std::fs::remove_file(&manual_todo_path).or_else(|e| {
-                                    if e.kind() == std::io::ErrorKind::NotFound {
-                                        Ok(())
-                                    } else {
-                                        Err(e)
-                                    }
-                                })
-                            };
-                            if let Err(e) = todo_res {
-                                self.error_message = Some(format!("Manual todo marker sync failed: {}", e));
-                            }
+                            let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
                         }
                     }
                 }
@@ -790,10 +775,25 @@ impl App {
                                 project_id,
                                 status,
                             } => {
-                                let _ = self.update_task(&project_id, &task_id, |task| {
+                                let result = self.update_task(&project_id, &task_id, |task| {
+                                    // Record reopened_at when transitioning from
+                                    // Completed so PrMonitor won't auto-complete
+                                    // based on already-merged PRs.
+                                    if task.status == Status::Completed
+                                        && status == Status::InProgress
+                                    {
+                                        task.reopened_at = Some(Utc::now());
+                                    }
                                     task.status = status;
                                     task.updated_at = Utc::now();
                                 });
+                                // Only clear the .prompt_submitted marker after
+                                // the status change has been persisted successfully,
+                                // so it can be retried on the next tick if save fails.
+                                if result.is_ok() {
+                                    let task_dir = self.store.task_dir(&project_id, &task_id);
+                                    let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                                }
                                 data_changed = true;
                             }
                             crate::services::agent_monitor::MonitorEvent::PrLinkDiscovered {
@@ -827,6 +827,10 @@ impl App {
                             task_id,
                             project_id,
                         } => {
+                            // Clear .prompt_submitted so the monitor won't
+                            // immediately reopen the task after auto-completing.
+                            let task_dir = self.store.task_dir(&project_id, &task_id);
+                            let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
                             let _ = self.update_task(&project_id, &task_id, |task| {
                                 task.status = Status::Completed;
                                 task.reopened_at = None;
@@ -891,11 +895,6 @@ impl App {
 
         self.store.save_task(&task)?;
 
-        // Write .manual_todo marker so the monitor keeps the task in Todo
-        // until the agent actually starts executing tools (PreToolUse clears it).
-        if task.agent_cli == AgentCli::Claude {
-            let _ = std::fs::write(task_dir.join(".manual_todo"), "manual\n");
-        }
 
         // Find project info for background setup
         let project = self
@@ -980,6 +979,16 @@ impl App {
                                 &bg_task.agent_cli,
                                 prompt_file.as_deref(),
                             );
+                            // If an initial prompt was provided, create the
+                            // .prompt_submitted marker so the monitor can
+                            // transition Todo → InProgress even if the
+                            // UserPromptSubmit hook doesn't fire for piped prompts.
+                            if prompt_file.is_some() {
+                                let _ = std::fs::write(
+                                    bg_task_dir.join(".prompt_submitted"),
+                                    "",
+                                );
+                            }
                         }
                         Some(session_name)
                     }
@@ -1028,7 +1037,6 @@ impl App {
             TreeItem::Task {
                 id,
                 project_id,
-                status,
                 ..
             } => {
                 let task = self
@@ -1043,20 +1051,8 @@ impl App {
                     .clone()
                     .unwrap_or_else(|| TmuxService::session_name(&project_id, &id));
 
-                // Helper closure: reopen Completed task as InProgress
-                let maybe_reopen = |app: &mut Self| {
-                    if status == Status::Completed {
-                        let _ = app.update_task(&project_id, &id, |task| {
-                            task.reopened_at = Some(Utc::now());
-                            task.status = Status::InProgress;
-                            task.updated_at = Utc::now();
-                        });
-                    }
-                };
-
                 // Session already exists – just attach
                 if self.tmux.session_exists(&session_name) {
-                    maybe_reopen(self);
                     return Some(session_name);
                 }
 
@@ -1097,7 +1093,6 @@ impl App {
                         }
                         self.active_sessions.insert(session_name.clone());
                         self.rebuild_tree();
-                        maybe_reopen(self);
                         Some(session_name)
                     }
                     Err(e) => {
