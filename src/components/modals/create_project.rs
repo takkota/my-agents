@@ -68,14 +68,6 @@ impl CreateProjectModal {
         }
     }
 
-    fn parse_copy_files(input: &str) -> Vec<String> {
-        input
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    }
-
     fn validate_name(name: &str) -> bool {
         !name.is_empty()
             && name
@@ -113,7 +105,7 @@ impl Modal for CreateProjectModal {
                 Ok(Some(Action::CreateProject {
                     name: self.name_input.value.clone(),
                     repos,
-                    worktree_copy_files: Self::parse_copy_files(&self.copy_files_input.value),
+                    worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
                 }))
             }
             _ => {

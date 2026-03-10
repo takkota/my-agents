@@ -22,6 +22,15 @@ pub trait Modal {
     fn title(&self) -> &str;
 }
 
+/// Parse a comma-separated input string into a Vec of trimmed, non-empty strings.
+pub fn parse_comma_separated(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// Calculate a centered rect for modal overlay
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let popup_width = area.width * percent_x / 100;

@@ -607,11 +607,16 @@ impl App {
                     // Copy configured files from upstream repos to worktrees
                     if !project.worktree_copy_files.is_empty() {
                         for wt in &wts {
-                            let _ = WorktreeService::copy_files_to_worktree(
+                            if let Err(e) = WorktreeService::copy_files_to_worktree(
                                 &wt.upstream_path,
                                 &wt.worktree_path,
                                 &project.worktree_copy_files,
-                            );
+                            ) {
+                                self.error_message = Some(format!(
+                                    "Failed to copy files to {}: {}",
+                                    wt.repo_name, e
+                                ));
+                            }
                         }
                     }
                     wts
