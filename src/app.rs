@@ -423,6 +423,20 @@ impl App {
                 project_id,
                 status,
             } => {
+                // When manually setting InReview on a Claude task, create the
+                // signal file so the agent monitor doesn't immediately flip it
+                // back to InProgress.
+                if status == Status::InReview {
+                    if let Some(tasks) = self.tasks_by_project.get(&project_id) {
+                        if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
+                            if task.agent_cli == AgentCli::Claude {
+                                let signal_path = self.store.task_dir(&project_id, &task_id)
+                                    .join(".agent_signal");
+                                let _ = std::fs::write(&signal_path, "manual\n");
+                            }
+                        }
+                    }
+                }
                 self.update_task(&project_id, &task_id, |task| {
                     task.status = status;
                     task.updated_at = Utc::now();
