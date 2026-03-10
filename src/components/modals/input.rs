@@ -154,11 +154,17 @@ impl TextInput {
             Line::from(self.value.as_str())
         };
 
-        // Compute display width of text before cursor for horizontal scroll
+        // Compute display width of text before cursor + cursor char width for horizontal scroll
         let visible_width = area.width.saturating_sub(2) as usize;
         let cursor_display_col = self.value[..self.byte_offset()].width();
-        let h_scroll = if visible_width > 0 && cursor_display_col >= visible_width {
-            (cursor_display_col - visible_width + 1) as u16
+        let cursor_char_width = self.value[self.byte_offset()..]
+            .chars()
+            .next()
+            .map(|ch| ch.width().unwrap_or(1))
+            .unwrap_or(1);
+        let cursor_end = cursor_display_col + cursor_char_width;
+        let h_scroll = if visible_width > 0 && cursor_end > visible_width {
+            (cursor_end - visible_width) as u16
         } else {
             0
         };
@@ -468,13 +474,19 @@ impl TextArea {
         let visible_height = area.height.saturating_sub(2) as usize;
         let visible_width = area.width.saturating_sub(2) as usize;
         let (cursor_line, cursor_col, _) = self.cursor_line_col();
+        // Include cursor character width (CJK = 2, ASCII = 1, end-of-line cursor block = 1)
+        let cursor_char_width = self.value.chars().nth(self.cursor)
+            .and_then(|ch| if ch == '\n' { None } else { Some(ch) })
+            .map(|ch| ch.width().unwrap_or(1))
+            .unwrap_or(1);
+        let cursor_end = cursor_col + cursor_char_width;
         let v_scroll = if visible_height > 0 && cursor_line >= visible_height {
             (cursor_line - visible_height + 1) as u16
         } else {
             0
         };
-        let h_scroll = if visible_width > 0 && cursor_col >= visible_width {
-            (cursor_col - visible_width + 1) as u16
+        let h_scroll = if visible_width > 0 && cursor_end > visible_width {
+            (cursor_end - visible_width) as u16
         } else {
             0
         };
