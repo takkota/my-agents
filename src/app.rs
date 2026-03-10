@@ -576,32 +576,14 @@ impl App {
                 project_id,
                 status,
             } => {
-                // Sync signal file with manual status changes on Claude tasks.
-                // - InReview: create signal file so monitor doesn't flip to InProgress
-                // - Other statuses: remove signal file so monitor doesn't flip to InReview
+                // Sync manual_todo marker with manual status changes on Claude tasks.
+                // When manually setting Todo, write marker so the monitor
+                // won't flip to InProgress until PreToolUse clears it.
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
                         if task.agent_cli == AgentCli::Claude {
                             let task_dir = self.store.task_dir(&project_id, &task_id);
-                            let signal_path = task_dir.join(".agent_signal");
                             let manual_todo_path = task_dir.join(".manual_todo");
-                            let res = if status == Status::InReview {
-                                std::fs::write(&signal_path, "manual\n")
-                            } else {
-                                std::fs::remove_file(&signal_path).or_else(|e| {
-                                    if e.kind() == std::io::ErrorKind::NotFound {
-                                        Ok(())
-                                    } else {
-                                        Err(e)
-                                    }
-                                })
-                            };
-                            if let Err(e) = res {
-                                self.error_message = Some(format!("Signal file sync failed: {}", e));
-                            }
-
-                            // When manually setting Todo, write marker so the monitor
-                            // won't flip to InProgress until PreToolUse clears it.
                             let todo_res = if status == Status::Todo {
                                 std::fs::write(&manual_todo_path, "manual\n")
                             } else {
