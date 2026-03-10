@@ -1,6 +1,7 @@
 use crate::error::AppResult;
 use crossterm::{
     execute,
+    event::{EnableBracketedPaste, DisableBracketedPaste},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::backend::CrosstermBackend;
@@ -12,7 +13,7 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 pub fn enter() -> AppResult<Tui> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
     Ok(terminal)
@@ -20,13 +21,13 @@ pub fn enter() -> AppResult<Tui> {
 
 pub fn exit() -> AppResult<()> {
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste)?;
     Ok(())
 }
 
 pub fn suspend() -> AppResult<()> {
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste)?;
     Ok(())
 }
 

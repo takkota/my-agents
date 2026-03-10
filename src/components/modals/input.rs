@@ -44,6 +44,14 @@ impl TextInput {
         self.cursor += 1;
     }
 
+    /// Insert a string (e.g. from paste), converting newlines to spaces
+    pub fn insert_paste(&mut self, text: &str) {
+        let sanitized = text.replace("\r\n", " ").replace(['\n', '\r'], " ");
+        for c in sanitized.chars() {
+            self.insert_char(c);
+        }
+    }
+
     pub fn delete_char(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;

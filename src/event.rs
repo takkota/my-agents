@@ -9,6 +9,7 @@ use tokio::time::interval;
 #[derive(Debug, Clone)]
 pub enum Event {
     Key(KeyEvent),
+    Paste(String),
     Tick,
     BackgroundAction(Action),
 }
@@ -39,6 +40,9 @@ impl EventHandler {
                                 if key.kind == KeyEventKind::Press {
                                     let _ = event_tx.send(Event::Key(key));
                                 }
+                            }
+                            Some(Ok(crossterm::event::Event::Paste(text))) => {
+                                let _ = event_tx.send(Event::Paste(text));
                             }
                             Some(Err(_)) => break,
                             None => break,

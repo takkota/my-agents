@@ -174,6 +174,8 @@ pub struct Task {
     pub agent_cli: AgentCli,
     pub worktrees: Vec<WorktreeInfo>,
     pub links: Vec<TaskLink>,
+    #[serde(default)]
+    pub notes: Option<String>,
     pub tmux_session: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

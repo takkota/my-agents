@@ -42,11 +42,13 @@ pub enum Action {
         name: String,
         priority: Priority,
         agent_cli: AgentCli,
+        notes: Option<String>,
     },
-    UpdateTaskName {
+    UpdateTask {
         task_id: String,
         project_id: String,
         name: String,
+        notes: Option<String>,
     },
     UpdateTaskStatus {
         task_id: String,
@@ -68,6 +70,11 @@ pub enum Action {
         task_id: String,
         project_id: String,
         status: Status,
+    },
+
+    // Link actions
+    OpenLinkInBrowser {
+        url: String,
     },
 
     // System

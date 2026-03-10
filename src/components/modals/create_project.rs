@@ -157,6 +157,13 @@ impl Modal for CreateProjectModal {
         self.repo_list.render(frame, chunks[1]);
     }
 
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_field {
+            Field::Name => self.name_input.insert_paste(text),
+            Field::Repos => {}
+        }
+    }
+
     fn title(&self) -> &str {
         "New Project"
     }

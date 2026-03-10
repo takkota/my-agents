@@ -4,6 +4,7 @@ use crate::components::modals::create_project::CreateProjectModal;
 use crate::components::modals::create_task::CreateTaskModal;
 use crate::components::modals::edit_item::{EditItemModal, EditProjectModal, EditTaskModal};
 use crate::components::modals::filter::FilterModal;
+use crate::components::modals::select_link::SelectLinkModal;
 use crate::components::modals::set_link::SetLinkModal;
 use crate::components::modals::set_status::SetStatusModal;
 use crate::components::modals::sort::SortModal;
@@ -64,6 +65,7 @@ pub enum ModalKind {
     EditItem(EditItemModal),
     SetStatus(SetStatusModal),
     SetLink(SetLinkModal),
+    SelectLink(SelectLinkModal),
     Filter(FilterModal),
     Sort(SortModal),
     ConfirmDelete(ConfirmDeleteModal),
@@ -127,6 +129,22 @@ impl App {
             .rebuild(&self.projects, &self.tasks_by_project, &self.active_sessions);
     }
 
+    pub fn handle_paste_event(&mut self, text: &str) {
+        if let Some(modal) = &mut self.active_modal {
+            match modal {
+                ModalKind::CreateProject(m) => m.handle_paste(text),
+                ModalKind::CreateTask(m) => m.handle_paste(text),
+                ModalKind::EditItem(m) => m.handle_paste(text),
+                ModalKind::SetLink(m) => m.handle_paste(text),
+                ModalKind::SetStatus(m) => m.handle_paste(text),
+                ModalKind::SelectLink(m) => m.handle_paste(text),
+                ModalKind::Filter(m) => m.handle_paste(text),
+                ModalKind::Sort(m) => m.handle_paste(text),
+                ModalKind::ConfirmDelete(m) => m.handle_paste(text),
+            }
+        }
+    }
+
     pub fn handle_key_event(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         // Modal takes priority
         if let Some(modal) = &mut self.active_modal {
@@ -136,6 +154,7 @@ impl App {
                 ModalKind::EditItem(m) => m.handle_key(key),
                 ModalKind::SetStatus(m) => m.handle_key(key),
                 ModalKind::SetLink(m) => m.handle_key(key),
+                ModalKind::SelectLink(m) => m.handle_key(key),
                 ModalKind::Filter(m) => m.handle_key(key),
                 ModalKind::Sort(m) => m.handle_key(key),
                 ModalKind::ConfirmDelete(m) => m.handle_key(key),
@@ -158,6 +177,30 @@ impl App {
             }
             KeyCode::Char('L') => {
                 return Ok(Some(Action::OpenSetLink));
+            }
+            KeyCode::Char('o') => {
+                // Open task link(s) in external browser
+                if let Some(TreeItem::Task { id, project_id, .. }) =
+                    self.task_tree.selected_item()
+                {
+                    if let Some(tasks) = self.tasks_by_project.get(project_id.as_str()) {
+                        if let Some(task) = tasks.iter().find(|t| t.id == *id) {
+                            match task.links.len() {
+                                0 => {}
+                                1 => {
+                                    return Ok(Some(Action::OpenLinkInBrowser {
+                                        url: task.links[0].url.clone(),
+                                    }));
+                                }
+                                _ => {
+                                    self.active_modal = Some(ModalKind::SelectLink(
+                                        SelectLinkModal::new(task.links.clone()),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
             }
             KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
             KeyCode::Down | KeyCode::Char('j') => return Ok(Some(Action::MoveDown)),
@@ -247,10 +290,11 @@ impl App {
                             id,
                             project_id,
                             name,
+                            notes,
                             ..
                         } => {
                             self.active_modal = Some(ModalKind::EditItem(EditItemModal::Task(
-                                EditTaskModal::new(id, project_id, name),
+                                EditTaskModal::new(id, project_id, name, notes),
                             )));
                         }
                     }
@@ -387,24 +431,29 @@ impl App {
                 name,
                 priority,
                 agent_cli,
+                notes,
             } => {
-                self.handle_create_task(project_id, name, priority, agent_cli)?;
+                self.handle_create_task(project_id, name, priority, agent_cli, notes)?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+                self.refresh_preview_task_info();
             }
-            Action::UpdateTaskName {
+            Action::UpdateTask {
                 task_id,
                 project_id,
                 name,
+                notes,
             } => {
                 self.update_task(&project_id, &task_id, |task| {
                     task.name = name;
+                    task.notes = notes;
                     task.updated_at = Utc::now();
                 })?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+                self.refresh_preview_task_info();
             }
             Action::UpdateTaskStatus {
                 task_id,
@@ -431,6 +480,7 @@ impl App {
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+                self.refresh_preview_task_info();
             }
             Action::DeleteTask {
                 project_id,
@@ -445,6 +495,19 @@ impl App {
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+            }
+
+            Action::OpenLinkInBrowser { url } => {
+                self.active_modal = None;
+                // Open URL in external browser using xdg-open (Linux) or open (macOS)
+                let cmd = if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                };
+                if let Err(e) = std::process::Command::new(cmd).arg(&url).spawn() {
+                    self.error_message = Some(format!("Failed to open link: {}", e));
+                }
             }
 
             Action::AgentStatusChanged {
@@ -469,7 +532,9 @@ impl App {
                     }
                 }
 
-                // Update preview
+                // Update preview with task info
+                self.refresh_preview_task_info();
+
                 let session_name = self.task_tree.selected_item().and_then(|item| {
                     if let TreeItem::Task { id, project_id, .. } = item {
                         self.tasks_by_project
@@ -497,6 +562,7 @@ impl App {
         name: String,
         priority: crate::domain::task::Priority,
         agent_cli: AgentCli,
+        notes: Option<String>,
     ) -> AppResult<()> {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
@@ -558,6 +624,7 @@ impl App {
             agent_cli,
             worktrees,
             links: Vec::new(),
+            notes,
             tmux_session: tmux_session.clone(),
             created_at: now,
             updated_at: now,
@@ -637,6 +704,24 @@ impl App {
         Ok(())
     }
 
+    fn refresh_preview_task_info(&mut self) {
+        let selected_task = self.task_tree.selected_item().and_then(|item| {
+            if let TreeItem::Task { id, project_id, .. } = item {
+                self.tasks_by_project
+                    .get(project_id.as_str())
+                    .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
+            } else {
+                None
+            }
+        });
+        if let Some(task) = selected_task {
+            self.preview_panel
+                .update_task_info(task.links.clone(), task.notes.clone());
+        } else {
+            self.preview_panel.update_task_info(Vec::new(), None);
+        }
+    }
+
     pub fn render(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
@@ -674,6 +759,7 @@ impl App {
                 ModalKind::EditItem(m) => m.render(frame, modal_area),
                 ModalKind::SetStatus(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::SetLink(m) => m.render(frame, centered_rect(50, 30, area)),
+                ModalKind::SelectLink(m) => m.render(frame, centered_rect(50, 40, area)),
                 ModalKind::Filter(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::Sort(m) => m.render(frame, centered_rect(40, 30, area)),
                 ModalKind::ConfirmDelete(m) => m.render(frame, centered_rect(50, 35, area)),

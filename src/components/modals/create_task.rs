@@ -11,6 +11,7 @@ use ratatui::Frame;
 
 enum Field {
     Name,
+    Notes,
     Priority,
     AgentCli,
 }
@@ -18,6 +19,7 @@ enum Field {
 pub struct CreateTaskModal {
     project_id: String,
     name_input: TextInput,
+    notes_input: TextInput,
     priority_list: SelectList<Priority>,
     agent_list: SelectList<AgentCli>,
     current_field: Field,
@@ -27,6 +29,8 @@ impl CreateTaskModal {
     pub fn new(project_id: String, default_agent: AgentCli) -> Self {
         let mut name_input = TextInput::new("Task Name");
         name_input.focused = true;
+
+        let notes_input = TextInput::new("Notes");
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
             .iter()
@@ -48,25 +52,38 @@ impl CreateTaskModal {
         Self {
             project_id,
             name_input,
+            notes_input,
             priority_list,
             agent_list,
             current_field: Field::Name,
         }
     }
 
-    fn next_field(&mut self) {
+    fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
+        self.notes_input.focused = false;
         self.priority_list.focused = false;
         self.agent_list.focused = false;
 
-        self.current_field = match self.current_field {
-            Field::Name => Field::Priority,
-            Field::Priority => Field::AgentCli,
-            Field::AgentCli => Field::Name,
+        self.current_field = if forward {
+            match self.current_field {
+                Field::Name => Field::Notes,
+                Field::Notes => Field::Priority,
+                Field::Priority => Field::AgentCli,
+                Field::AgentCli => Field::Name,
+            }
+        } else {
+            match self.current_field {
+                Field::Name => Field::AgentCli,
+                Field::Notes => Field::Name,
+                Field::Priority => Field::Notes,
+                Field::AgentCli => Field::Priority,
+            }
         };
 
         match self.current_field {
             Field::Name => self.name_input.focused = true,
+            Field::Notes => self.notes_input.focused = true,
             Field::Priority => self.priority_list.focused = true,
             Field::AgentCli => self.agent_list.focused = true,
         }
@@ -77,8 +94,12 @@ impl Modal for CreateTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.next_field();
+            KeyCode::Tab => {
+                self.switch_field(true);
+                Ok(None)
+            }
+            KeyCode::BackTab => {
+                self.switch_field(false);
                 Ok(None)
             }
             KeyCode::Enter => {
@@ -95,12 +116,18 @@ impl Modal for CreateTaskModal {
                     .selected_value()
                     .copied()
                     .unwrap_or(AgentCli::None);
+                let notes = if self.notes_input.value.is_empty() {
+                    None
+                } else {
+                    Some(self.notes_input.value.clone())
+                };
 
                 Ok(Some(Action::CreateTask {
                     project_id: self.project_id.clone(),
                     name: self.name_input.value.clone(),
                     priority,
                     agent_cli,
+                    notes,
                 }))
             }
             _ => {
@@ -110,6 +137,13 @@ impl Modal for CreateTaskModal {
                         KeyCode::Backspace => self.name_input.delete_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
+                        _ => {}
+                    },
+                    Field::Notes => match key.code {
+                        KeyCode::Char(c) => self.notes_input.insert_char(c),
+                        KeyCode::Backspace => self.notes_input.delete_char(),
+                        KeyCode::Left => self.notes_input.move_left(),
+                        KeyCode::Right => self.notes_input.move_right(),
                         _ => {}
                     },
                     Field::Priority => match key.code {
@@ -144,14 +178,24 @@ impl Modal for CreateTaskModal {
 
         let chunks = Layout::vertical([
             Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Length(7),
             Constraint::Length(5),
         ])
         .split(inner);
 
         self.name_input.render(frame, chunks[0]);
-        self.priority_list.render(frame, chunks[1]);
-        self.agent_list.render(frame, chunks[2]);
+        self.notes_input.render(frame, chunks[1]);
+        self.priority_list.render(frame, chunks[2]);
+        self.agent_list.render(frame, chunks[3]);
+    }
+
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_field {
+            Field::Name => self.name_input.insert_paste(text),
+            Field::Notes => self.notes_input.insert_paste(text),
+            _ => {}
+        }
     }
 
     fn title(&self) -> &str {

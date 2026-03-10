@@ -52,6 +52,9 @@ async fn main() -> AppResult<()> {
                     }
                 }
             }
+            Event::Paste(text) => {
+                app.handle_paste_event(&text);
+            }
             Event::Tick => {
                 if let Err(e) = app.update(action::Action::Tick) {
                     app.error_message = Some(format!("{}", e));
