@@ -14,7 +14,7 @@ use crate::components::status_bar::StatusBar;
 use crate::components::task_tree::{TaskTree, TreeItem};
 use crate::config::Config;
 use crate::domain::project::{Project, RepoRef};
-use crate::domain::task::{AgentCli, Priority, Status, Task};
+use crate::domain::task::{AgentCli, Priority, Status, Task, TaskLink};
 use crate::error::AppResult;
 use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
@@ -119,8 +119,8 @@ impl App {
 
         app.reload_data()?;
 
-        // Expand first project by default
-        if let Some(p) = app.projects.first() {
+        // Expand all projects by default
+        for p in &app.projects {
             app.task_tree.expanded.insert(p.id.clone());
         }
         app.rebuild_tree();
@@ -520,8 +520,9 @@ impl App {
                 priority,
                 agent_cli,
                 notes,
+                link,
             } => {
-                self.handle_create_task(project_id, name, priority, agent_cli, notes)?;
+                self.handle_create_task(project_id, name, priority, agent_cli, notes, link)?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
@@ -675,6 +676,18 @@ impl App {
                                 });
                                 data_changed = true;
                             }
+                            crate::services::agent_monitor::MonitorEvent::PrLinkDiscovered {
+                                task_id,
+                                project_id,
+                                url,
+                            } => {
+                                let link = TaskLink { url, display_name: None };
+                                let _ = self.update_task(&project_id, &task_id, |task| {
+                                    task.links.push(link);
+                                    task.updated_at = Utc::now();
+                                });
+                                data_changed = true;
+                            }
                         }
                     }
                 }
@@ -721,6 +734,7 @@ impl App {
         priority: crate::domain::task::Priority,
         agent_cli: AgentCli,
         notes: Option<String>,
+        link: Option<crate::domain::task::TaskLink>,
     ) -> AppResult<()> {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
@@ -798,7 +812,7 @@ impl App {
             status: crate::domain::task::Status::Todo,
             agent_cli,
             worktrees,
-            links: Vec::new(),
+            links: link.into_iter().collect(),
             notes,
             tmux_session: tmux_session.clone(),
             created_at: now,
