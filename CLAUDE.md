@@ -40,6 +40,15 @@ Single enum representing all possible state transitions. Modal `handle_key()` me
 ### Storage (storage/fs_store.rs)
 `FsStore` reads/writes JSON files under `~/.my-agents/projects/{project}/tasks/{task_id}/task.json`. No database.
 
+On startup, `install_scripts()` embeds the `ma-task` bash script (via `include_str!`) into `~/.my-agents/bin/`. The script is auto-updated when the binary version changes.
+
+When creating agent sessions, `write_agent_config_files()` generates:
+- **CLAUDE.md** / **AGENTS.md** — `@repo/` references to upstream config + skill trigger description
+- **Claude Code skill** — `.claude/skills/task-management/SKILL.md` (with `allowed-tools: Bash`)
+- **Codex skill** — `.agents/skills/task-management/SKILL.md` (standard Agent Skills format)
+- **Claude hooks** — `.claude/settings.json` with PreToolUse hook for auto status tracking
+- Both skills share the same body via `skill_body()` helper, differing only in frontmatter
+
 ### Services (services/)
 - `TmuxService` — create/kill/attach sessions, capture pane content, launch agent CLI
 - `WorktreeService` — create/remove git worktrees per task, branch naming: `task/{short_id}/{repo_name}`
@@ -64,3 +73,5 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - Worktree branches: `task/{task_id_6char}/{repo_name}`
 - `.agent_signal` file in task dir prevents agent monitor from overriding manual InReview status
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
+- `ma-task` CLI (bash script in `~/.my-agents/bin/`) lets agents manage tasks via JSON commands
+- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex
