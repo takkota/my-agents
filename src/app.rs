@@ -983,8 +983,8 @@ impl App {
         .split(area);
 
         let content_chunks = Layout::horizontal([
-            Constraint::Percentage(40),
-            Constraint::Percentage(60),
+            Constraint::Percentage(55),
+            Constraint::Percentage(45),
         ])
         .split(main_chunks[0]);
 
