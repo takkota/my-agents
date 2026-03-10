@@ -305,10 +305,16 @@ impl PreviewPanel {
                 info_lines += 1 + self.task_links.len(); // header + links
             }
             if let Some(notes) = &self.task_notes {
-                if !self.task_links.is_empty() {
+                if info_lines > 0 {
                     info_lines += 1; // separator
                 }
                 info_lines += 1 + notes.lines().count(); // header + notes lines
+            }
+            if let Some(instructions) = &self.task_initial_instructions {
+                if info_lines > 0 {
+                    info_lines += 1; // separator
+                }
+                info_lines += 1 + instructions.lines().count(); // header + instruction lines
             }
             let max_height = if self.current_session.is_some() {
                 area.height / 3
