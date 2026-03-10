@@ -60,6 +60,9 @@ pub struct App {
     repo_scan_rx: Option<mpsc::Receiver<Vec<std::path::PathBuf>>>,
     pub active_sessions: HashSet<String>,
 
+    // Background task setup receiver
+    task_setup_rx: Vec<mpsc::Receiver<TaskSetupResult>>,
+
     // Monitors
     agent_monitor: AgentMonitor,
     pr_monitor: PrMonitor,
@@ -67,6 +70,15 @@ pub struct App {
 
     // Error display
     pub error_message: Option<String>,
+}
+
+/// Result from a background task setup (worktree + tmux + config).
+struct TaskSetupResult {
+    task_id: String,
+    project_id: String,
+    worktrees: Vec<crate::domain::task::WorktreeInfo>,
+    tmux_session: Option<String>,
+    error: Option<String>,
 }
 
 pub enum ModalKind {
@@ -112,6 +124,7 @@ impl App {
             available_repos: Vec::new(),
             repo_scan_rx: Some(rx),
             active_sessions: HashSet::new(),
+            task_setup_rx: Vec::new(),
             agent_monitor,
             pr_monitor,
             tick_count: 0,
@@ -137,6 +150,40 @@ impl App {
         app.rebuild_tree();
 
         Ok(app)
+    }
+
+    /// Poll for completed background task setup results and apply them.
+    fn poll_task_setup_results(&mut self) {
+        let mut completed = Vec::new();
+        let mut i = 0;
+        while i < self.task_setup_rx.len() {
+            match self.task_setup_rx[i].try_recv() {
+                Ok(result) => {
+                    completed.push(result);
+                    self.task_setup_rx.swap_remove(i);
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    i += 1;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.task_setup_rx.swap_remove(i);
+                }
+            }
+        }
+
+        for result in completed {
+            if let Some(error) = result.error {
+                self.error_message = Some(format!("Task setup error: {}", error));
+            }
+            let _ = self.update_task(&result.project_id, &result.task_id, |task| {
+                task.worktrees = result.worktrees;
+                task.tmux_session = result.tmux_session;
+                task.updated_at = Utc::now();
+            });
+            let _ = self.reload_data();
+            self.rebuild_tree();
+            self.refresh_preview_task_info();
+        }
     }
 
     /// Check if the background repo scan has completed and store results.
@@ -668,6 +715,9 @@ impl App {
             Action::Tick => {
                 self.tick_count += 1;
 
+                // Poll background task setup results
+                self.poll_task_setup_results();
+
                 // Refresh active sessions periodically
                 self.active_sessions.clear();
                 if let Ok(sessions) = self.tmux.list_sessions() {
@@ -787,7 +837,31 @@ impl App {
         let task_dir = self.store.task_dir(&project_id, &task_id);
         std::fs::create_dir_all(&task_dir)?;
 
-        // Create worktrees from project repos
+        // Save task immediately (without worktrees/tmux) so UI updates fast
+        let task = Task {
+            id: task_id.clone(),
+            project_id: project_id.clone(),
+            name,
+            priority,
+            status: crate::domain::task::Status::Todo,
+            agent_cli,
+            worktrees: Vec::new(),
+            links,
+            notes,
+            tmux_session: None,
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.store.save_task(&task)?;
+
+        // Write .manual_todo marker so the monitor keeps the task in Todo
+        // until the agent actually starts executing tools (PreToolUse clears it).
+        if task.agent_cli == AgentCli::Claude {
+            let _ = std::fs::write(task_dir.join(".manual_todo"), "manual\n");
+        }
+
+        // Find project info for background setup
         let project = self
             .projects
             .iter()
@@ -795,85 +869,77 @@ impl App {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Project not found"))?;
 
-        let repos: Vec<(String, std::path::PathBuf)> = project
-            .repos
-            .iter()
-            .map(|r| (r.name.clone(), r.path.clone()))
-            .collect();
+        // Spawn background thread for heavy operations (worktree, tmux, config files)
+        let store = self.store.clone();
+        let worktree_svc = WorktreeService::new();
+        let tmux = TmuxService::new();
+        let (tx, rx) = mpsc::channel();
+        let bg_task = task.clone();
+        let bg_task_dir = task_dir.clone();
 
-        let worktrees = if !repos.is_empty() {
-            match self
-                .worktree_svc
-                .create_worktrees_for_task(&task_dir, &task_id, &repos)
-            {
-                Ok(wts) => {
-                    // Copy configured files from upstream repos to worktrees
-                    if !project.worktree_copy_files.is_empty() {
-                        for wt in &wts {
-                            if let Err(e) = WorktreeService::copy_files_to_worktree(
-                                &wt.upstream_path,
-                                &wt.worktree_path,
-                                &project.worktree_copy_files,
-                            ) {
-                                self.error_message = Some(format!(
-                                    "Failed to copy files to {}: {}",
-                                    wt.repo_name, e
-                                ));
+        std::thread::spawn(move || {
+            let repos: Vec<(String, std::path::PathBuf)> = project
+                .repos
+                .iter()
+                .map(|r| (r.name.clone(), r.path.clone()))
+                .collect();
+
+            // Create worktrees
+            let worktrees = if !repos.is_empty() {
+                match worktree_svc.create_worktrees_for_task(&bg_task_dir, &bg_task.id, &repos) {
+                    Ok(wts) => {
+                        if !project.worktree_copy_files.is_empty() {
+                            for wt in &wts {
+                                let _ = WorktreeService::copy_files_to_worktree(
+                                    &wt.upstream_path,
+                                    &wt.worktree_path,
+                                    &project.worktree_copy_files,
+                                );
                             }
                         }
+                        wts
                     }
-                    wts
+                    Err(_) => Vec::new(),
                 }
-                Err(_) => Vec::new(), // Worktree creation failed, continue without
-            }
-        } else {
-            Vec::new()
-        };
+            } else {
+                Vec::new()
+            };
 
-        // Create tmux session
-        let session_name = TmuxService::session_name(&project_id, &task_id);
-        let tmux_session = if TmuxService::is_available() {
-            self.tmux.create_session(&session_name, &task_dir)?;
-            if agent_cli != AgentCli::None {
-                self.tmux.launch_agent(&session_name, &agent_cli)?;
-            }
-            Some(session_name)
-        } else {
-            None
-        };
+            // Create tmux session
+            let session_name = TmuxService::session_name(&bg_task.project_id, &bg_task.id);
+            let tmux_session = if TmuxService::is_available() {
+                match tmux.create_session(&session_name, &bg_task_dir) {
+                    Ok(()) => {
+                        if bg_task.agent_cli != AgentCli::None {
+                            let _ = tmux.launch_agent(&session_name, &bg_task.agent_cli);
+                        }
+                        Some(session_name)
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
 
-        let task = Task {
-            id: task_id,
-            project_id,
-            name,
-            priority,
-            status: crate::domain::task::Status::Todo,
-            agent_cli,
-            worktrees,
-            links,
-            notes,
-            tmux_session: tmux_session.clone(),
-            created_at: now,
-            updated_at: now,
-        };
+            // Write agent config files (needs updated task with worktrees)
+            let mut updated_task = bg_task;
+            updated_task.worktrees = worktrees.clone();
+            updated_task.tmux_session = tmux_session.clone();
+            let error = match store.save_task(&updated_task).and_then(|_| store.write_agent_config_files(&updated_task)) {
+                Ok(()) => None,
+                Err(e) => Some(format!("{}", e)),
+            };
 
-        if let Err(e) = self.store.save_task(&task).and_then(|_| self.store.write_agent_config_files(&task)) {
-            // Rollback: kill tmux session and remove worktrees
-            if let Some(session) = &tmux_session {
-                let _ = self.tmux.kill_session(session);
-            }
-            for wt in &task.worktrees {
-                let _ = self.worktree_svc.remove_worktree(wt);
-            }
-            let _ = std::fs::remove_dir_all(&task_dir);
-            return Err(e);
-        }
+            let _ = tx.send(TaskSetupResult {
+                task_id: updated_task.id,
+                project_id: updated_task.project_id,
+                worktrees,
+                tmux_session,
+                error,
+            });
+        });
 
-        // Write .manual_todo marker so the monitor keeps the task in Todo
-        // until the agent actually starts executing tools (PreToolUse clears it).
-        if task.agent_cli == AgentCli::Claude {
-            let _ = std::fs::write(task_dir.join(".manual_todo"), "manual\n");
-        }
+        self.task_setup_rx.push(rx);
 
         Ok(())
     }
