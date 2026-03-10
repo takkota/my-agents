@@ -197,8 +197,8 @@ impl FsStore {
             fs::write(dir.join("CLAUDE.md"), claude_lines.join("\n") + "\n")?;
         }
 
-        // Write AGENTS.md with references
-        let agents_lines: Vec<String> = task
+        // Write AGENTS.md with references and skill trigger
+        let mut agents_lines: Vec<String> = task
             .worktrees
             .iter()
             .filter_map(|wt| {
@@ -210,6 +210,19 @@ impl FsStore {
                 }
             })
             .collect();
+        if task.agent_cli == crate::domain::task::AgentCli::Codex {
+            agents_lines.push(String::new());
+            agents_lines.push("## Task Management".to_string());
+            agents_lines.push(format!(
+                "This session is managed by my-agents. Task ID: `{}`, Project: `{}`.",
+                task.id, task.project_id
+            ));
+            agents_lines.push(
+                "Use the `$task-management` skill when you need to check task details, \
+                 update status, add links, or create new tasks."
+                    .to_string(),
+            );
+        }
         if !agents_lines.is_empty() {
             fs::write(dir.join("AGENTS.md"), agents_lines.join("\n") + "\n")?;
         }
@@ -220,7 +233,7 @@ impl FsStore {
             self.write_claude_skill(task)?;
         }
 
-        // Write Codex skill instructions into AGENTS.md
+        // Write Codex skill into .agents/skills/ directory
         if task.agent_cli == crate::domain::task::AgentCli::Codex {
             self.write_codex_skill(task)?;
         }
@@ -454,52 +467,78 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
         Ok(())
     }
 
-    /// Append task management instructions to `AGENTS.md` in the task directory for Codex.
+    /// Write `.agents/skills/task-management/SKILL.md` in the task directory for Codex.
     fn write_codex_skill(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
-        let agents_md_path = task_dir.join("AGENTS.md");
+        let skill_dir = task_dir
+            .join(".agents")
+            .join("skills")
+            .join("task-management");
+        fs::create_dir_all(&skill_dir)?;
 
-        let mut content = if agents_md_path.exists() {
-            fs::read_to_string(&agents_md_path)?
-        } else {
-            String::new()
-        };
+        let skill_md = format!(
+            r#"---
+name: task-management
+description: Use when you need to check your task details, update task status, add links (PR/issue URLs), or create/list tasks in the project.
+---
 
-        let skill_section = format!(
-            r#"
-## Task Management
+# Task Management Skill
 
-This session is managed by **my-agents**. Task ID: `{task_id}`, Project: `{project_id}`.
+You are working inside a **my-agents** managed session.
 
-Use the `ma-task` CLI to manage tasks. Output is JSON.
+- **Task ID**: `{task_id}`
+- **Project ID**: `{project_id}`
 
-### Commands
+## CLI: `ma-task`
+
+Use the `ma-task` command to manage tasks. Output is JSON.
+
+### Get current task info
 
 ```bash
-# Get current task info (auto-detected from working directory)
 ma-task current
-
-# Update task status (Todo, InProgress, InReview, Completed, Blocked)
-ma-task status {task_id} <status>
-
-# Add a link (PR, issue URL, etc.)
-ma-task link {task_id} <url>
-ma-task link {task_id} <url> --name "display name"
-
-# Get a specific task
-ma-task get <task-id>
-
-# List all tasks in this project
-ma-task list --project {project_id}
-
-# Create a new task
-ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|None]
-
-# Update task fields
-ma-task update {task_id} --name "new name" --priority P2 --notes "notes"
 ```
 
-### Guidelines
+### Update task status
+
+```bash
+ma-task status {task_id} <status>
+```
+
+Valid statuses: `Todo`, `InProgress`, `InReview`, `Completed`, `Blocked`
+
+### Add a link (PR, issue, etc.)
+
+```bash
+ma-task link {task_id} <url>
+ma-task link {task_id} <url> --name "PR #123"
+```
+
+### Get a specific task
+
+```bash
+ma-task get <task-id>
+```
+
+### List all tasks in this project
+
+```bash
+ma-task list --project {project_id}
+```
+
+### Create a new task
+
+```bash
+ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|None]
+```
+
+### Update task fields
+
+```bash
+ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
+```
+
+## Guidelines
 
 - After creating a PR, add the link with `ma-task link`.
 - When you finish your work, set status to `InReview`.
@@ -509,8 +548,7 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "notes"
             project_id = task.project_id,
         );
 
-        content.push_str(&skill_section);
-        fs::write(&agents_md_path, content)?;
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
         Ok(())
     }
 
