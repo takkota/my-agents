@@ -686,6 +686,15 @@ impl App {
                     }
                 }
                 self.update_task(&project_id, &task_id, |task| {
+                    // When reopening a Completed task, record reopened_at so
+                    // PrMonitor won't auto-complete from already-merged PRs.
+                    if task.status == Status::Completed && status != Status::Completed {
+                        task.reopened_at = Some(Utc::now());
+                    }
+                    // Clear reopened_at when manually completing
+                    if status == Status::Completed {
+                        task.reopened_at = None;
+                    }
                     task.status = status;
                     task.updated_at = Utc::now();
                 })?;
@@ -820,6 +829,7 @@ impl App {
                         } => {
                             let _ = self.update_task(&project_id, &task_id, |task| {
                                 task.status = Status::Completed;
+                                task.reopened_at = None;
                                 task.updated_at = Utc::now();
                             });
                             data_changed = true;
@@ -876,6 +886,7 @@ impl App {
             tmux_session: None,
             created_at: now,
             updated_at: now,
+            reopened_at: None,
         };
 
         self.store.save_task(&task)?;
@@ -1017,6 +1028,7 @@ impl App {
             TreeItem::Task {
                 id,
                 project_id,
+                status,
                 ..
             } => {
                 let task = self
@@ -1031,8 +1043,20 @@ impl App {
                     .clone()
                     .unwrap_or_else(|| TmuxService::session_name(&project_id, &id));
 
+                // Helper closure: reopen Completed task as InProgress
+                let maybe_reopen = |app: &mut Self| {
+                    if status == Status::Completed {
+                        let _ = app.update_task(&project_id, &id, |task| {
+                            task.reopened_at = Some(Utc::now());
+                            task.status = Status::InProgress;
+                            task.updated_at = Utc::now();
+                        });
+                    }
+                };
+
                 // Session already exists – just attach
                 if self.tmux.session_exists(&session_name) {
+                    maybe_reopen(self);
                     return Some(session_name);
                 }
 
@@ -1073,6 +1097,7 @@ impl App {
                         }
                         self.active_sessions.insert(session_name.clone());
                         self.rebuild_tree();
+                        maybe_reopen(self);
                         Some(session_name)
                     }
                     Err(e) => {

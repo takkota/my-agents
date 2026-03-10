@@ -532,6 +532,7 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
             tmux_session: None,
             created_at: now,
             updated_at: now,
+            reopened_at: None,
         };
         self.save_task(&task)?;
 

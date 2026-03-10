@@ -195,4 +195,8 @@ pub struct Task {
     pub tmux_session: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Set when a Completed task is reopened (transitioned back to InProgress).
+    /// PrMonitor uses this to avoid auto-completing from already-merged PRs.
+    #[serde(default)]
+    pub reopened_at: Option<DateTime<Utc>>,
 }
