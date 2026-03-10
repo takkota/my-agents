@@ -82,6 +82,7 @@ pub enum ModalKind {
 
 impl App {
     pub fn new(config: Config) -> AppResult<Self> {
+        let default_sort_mode = config.default_sort_mode;
         let store = FsStore::new(&config)?;
         store.ensure_quickstart()?;
         let tmux = TmuxService::new();
@@ -104,7 +105,7 @@ impl App {
             worktree_svc,
             projects: Vec::new(),
             tasks_by_project: HashMap::new(),
-            task_tree: TaskTree::new(),
+            task_tree: TaskTree::new(default_sort_mode),
             preview_panel: PreviewPanel::new(),
             active_modal: None,
             available_repos: Vec::new(),
@@ -186,11 +187,15 @@ impl App {
     }
 
     pub fn handle_key_event(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
-        // Remap Ctrl+N/P to arrow keys for navigation
+        // Remap Ctrl+N/P to arrow keys, Ctrl+F/B/A/E to cursor movement
         let key = if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('n') => KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
                 KeyCode::Char('p') => KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+                KeyCode::Char('f') => KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+                KeyCode::Char('b') => KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+                KeyCode::Char('a') => KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
+                KeyCode::Char('e') => KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
                 _ => key,
             }
         } else {

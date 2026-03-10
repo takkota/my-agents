@@ -72,6 +72,14 @@ impl TextInput {
         }
     }
 
+    pub fn move_to_start(&mut self) {
+        self.cursor = 0;
+    }
+
+    pub fn move_to_end(&mut self) {
+        self.cursor = self.value.chars().count();
+    }
+
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let border_color = if self.focused {
             Color::Cyan

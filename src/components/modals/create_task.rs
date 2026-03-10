@@ -137,6 +137,8 @@ impl Modal for CreateTaskModal {
                         KeyCode::Backspace => self.name_input.delete_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
+                        KeyCode::Home => self.name_input.move_to_start(),
+                        KeyCode::End => self.name_input.move_to_end(),
                         _ => {}
                     },
                     Field::Notes => match key.code {
@@ -144,6 +146,8 @@ impl Modal for CreateTaskModal {
                         KeyCode::Backspace => self.notes_input.delete_char(),
                         KeyCode::Left => self.notes_input.move_left(),
                         KeyCode::Right => self.notes_input.move_right(),
+                        KeyCode::Home => self.notes_input.move_to_start(),
+                        KeyCode::End => self.notes_input.move_to_end(),
                         _ => {}
                     },
                     Field::Priority => match key.code {

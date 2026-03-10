@@ -88,6 +88,8 @@ impl Modal for SetLinkModal {
                     KeyCode::Backspace => input.delete_char(),
                     KeyCode::Left => input.move_left(),
                     KeyCode::Right => input.move_right(),
+                    KeyCode::Home => input.move_to_start(),
+                    KeyCode::End => input.move_to_end(),
                     _ => {}
                 }
                 Ok(None)

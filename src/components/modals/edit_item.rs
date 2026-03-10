@@ -170,6 +170,8 @@ impl Modal for EditProjectModal {
                         KeyCode::Backspace => self.name_input.delete_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
+                        KeyCode::Home => self.name_input.move_to_start(),
+                        KeyCode::End => self.name_input.move_to_end(),
                         _ => {}
                     },
                     ProjectField::CopyFiles => match key.code {
@@ -177,6 +179,8 @@ impl Modal for EditProjectModal {
                         KeyCode::Backspace => self.copy_files_input.delete_char(),
                         KeyCode::Left => self.copy_files_input.move_left(),
                         KeyCode::Right => self.copy_files_input.move_right(),
+                        KeyCode::Home => self.copy_files_input.move_to_start(),
+                        KeyCode::End => self.copy_files_input.move_to_end(),
                         _ => {}
                     },
                     ProjectField::Repos => match key.code {
@@ -345,6 +349,8 @@ impl Modal for EditTaskModal {
                         KeyCode::Backspace => self.name_input.delete_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
+                        KeyCode::Home => self.name_input.move_to_start(),
+                        KeyCode::End => self.name_input.move_to_end(),
                         _ => {}
                     },
                     TaskField::Notes => match key.code {
@@ -352,6 +358,8 @@ impl Modal for EditTaskModal {
                         KeyCode::Backspace => self.notes_input.delete_char(),
                         KeyCode::Left => self.notes_input.move_left(),
                         KeyCode::Right => self.notes_input.move_right(),
+                        KeyCode::Home => self.notes_input.move_to_start(),
+                        KeyCode::End => self.notes_input.move_to_end(),
                         _ => {}
                     },
                     TaskField::Priority => match key.code {

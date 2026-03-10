@@ -140,6 +140,8 @@ impl Modal for CreateProjectModal {
                         }
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
+                        KeyCode::Home => self.name_input.move_to_start(),
+                        KeyCode::End => self.name_input.move_to_end(),
                         _ => {}
                     },
                     Field::CopyFiles => match key.code {
@@ -151,6 +153,8 @@ impl Modal for CreateProjectModal {
                         }
                         KeyCode::Left => self.copy_files_input.move_left(),
                         KeyCode::Right => self.copy_files_input.move_right(),
+                        KeyCode::Home => self.copy_files_input.move_to_start(),
+                        KeyCode::End => self.copy_files_input.move_to_end(),
                         _ => {}
                     },
                     Field::Repos => match key.code {
