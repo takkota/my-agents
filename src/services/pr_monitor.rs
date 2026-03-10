@@ -97,7 +97,7 @@ impl PrMonitor {
         let tasks = self.store.list_all_tasks().unwrap_or_default();
         let targets: Vec<PrCheckTarget> = tasks
             .iter()
-            .filter(|t| matches!(t.status, Status::InProgress | Status::InReview))
+            .filter(|t| matches!(t.status, Status::InProgress | Status::ActionRequired))
             .filter_map(|t| {
                 let prs = pr_links(&t.links);
                 if prs.is_empty() {

@@ -49,7 +49,7 @@ impl AgentMonitor {
     /// - Todo + `.manual_todo` present → stay Todo (agent hasn't used tools yet)
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
     ///
-    /// Note: InProgress → InReview transitions are handled by agent skills, not the monitor.
+    /// Note: InProgress → ActionRequired transitions are handled by agent skills, not the monitor.
     fn check_claude_task(
         &self,
         task_id: &str,

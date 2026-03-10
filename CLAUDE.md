@@ -34,7 +34,7 @@ Modals take input priority when active. Ctrl+N/P/F/B/A/E are remapped to arrow/c
 Single enum representing all possible state transitions. Modal `handle_key()` methods return `Action` variants to communicate back to `App`.
 
 ### Domain (domain/)
-- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/InReview/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/None), worktrees, links
+- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/None), worktrees, links
 - `Project` — groups tasks, references git repos (`RepoRef`), configures `worktree_copy_files`
 
 ### Storage (storage/fs_store.rs)

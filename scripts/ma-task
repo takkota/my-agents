@@ -294,13 +294,13 @@ cmd_status() {
 
     # Validate status
     case "$new_status" in
-        Todo|InProgress|InReview|Completed|Blocked) ;;
+        Todo|InProgress|ActionRequired|Completed|Blocked) ;;
         todo) new_status="Todo" ;;
         inprogress|in-progress|in_progress) new_status="InProgress" ;;
-        inreview|in-review|in_review) new_status="InReview" ;;
+        actionrequired|action-required|action_required) new_status="ActionRequired" ;;
         completed|done) new_status="Completed" ;;
         blocked) new_status="Blocked" ;;
-        *) die "invalid status: ${new_status} (use Todo, InProgress, InReview, Completed, Blocked)" ;;
+        *) die "invalid status: ${new_status} (use Todo, InProgress, ActionRequired, Completed, Blocked)" ;;
     esac
 
     # Resolve task
@@ -410,7 +410,7 @@ Update options:
   --notes <text>        New notes
 
 Status values:
-  Todo, InProgress, InReview, Completed, Blocked
+  Todo, InProgress, ActionRequired, Completed, Blocked
 HELP
 }
 
