@@ -333,7 +333,14 @@ impl TextArea {
             .find('\n')
             .map(|pos| cursor_byte + pos)
             .unwrap_or(self.value.len());
-        self.value.drain(cursor_byte..end_byte);
+        if cursor_byte == end_byte {
+            // Already at end of line content — delete the newline itself (join with next line)
+            if cursor_byte < self.value.len() && self.value.as_bytes()[cursor_byte] == b'\n' {
+                self.value.remove(cursor_byte);
+            }
+        } else {
+            self.value.drain(cursor_byte..end_byte);
+        }
     }
 
     /// Handle key events. Returns true if the key was handled.

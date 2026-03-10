@@ -17,11 +17,13 @@ enum Field {
     AgentCli,
 }
 
+const MAX_LINK_LINES: usize = 5;
+
 pub struct CreateTaskModal {
     project_id: String,
     name_input: TextInput,
     notes_input: TextArea,
-    link_url_input: TextInput,
+    link_url_input: TextArea,
     priority_list: SelectList<Priority>,
     agent_list: SelectList<AgentCli>,
     current_field: Field,
@@ -33,7 +35,7 @@ impl CreateTaskModal {
         name_input.focused = true;
 
         let notes_input = TextArea::new("Notes");
-        let link_url_input = TextInput::new("Link URL");
+        let link_url_input = TextArea::new("Link URLs (one per line, max 5)");
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
             .iter()
@@ -111,6 +113,20 @@ impl Modal for CreateTaskModal {
                 return Ok(None);
             }
         }
+        // In LinkUrl field, pass Enter (newline, up to max lines) and Up/Down to TextArea
+        if matches!(self.current_field, Field::LinkUrl) {
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                let current_lines = self.link_url_input.value.split('\n').count();
+                if current_lines < MAX_LINK_LINES {
+                    self.link_url_input.insert_newline();
+                }
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                self.link_url_input.handle_key(key);
+                return Ok(None);
+            }
+        }
         // Ctrl+Enter submits the form
         if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.name_input.value.is_empty() {
@@ -131,14 +147,17 @@ impl Modal for CreateTaskModal {
             } else {
                 Some(self.notes_input.value.clone())
             };
-            let link = if self.link_url_input.value.is_empty() {
-                None
-            } else {
-                Some(TaskLink {
-                    url: self.link_url_input.value.clone(),
+            let links: Vec<TaskLink> = self
+                .link_url_input
+                .value
+                .split('\n')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|url| TaskLink {
+                    url: url.to_string(),
                     display_name: None,
                 })
-            };
+                .collect();
 
             return Ok(Some(Action::CreateTask {
                 project_id: self.project_id.clone(),
@@ -146,7 +165,7 @@ impl Modal for CreateTaskModal {
                 priority,
                 agent_cli,
                 notes,
-                link,
+                links,
             }));
         }
         match key.code {
@@ -194,10 +213,14 @@ impl Modal for CreateTaskModal {
             horizontal: 1,
         });
 
+        // Link field grows with line count: 1 line = height 3, up to 5 lines = height 7
+        let link_line_count = self.link_url_input.value.split('\n').count().max(1);
+        let link_height = (link_line_count as u16) + 2; // +2 for border
+
         let chunks = Layout::vertical([
             Constraint::Length(3),
             Constraint::Length(5),
-            Constraint::Length(3),
+            Constraint::Length(link_height),
             Constraint::Length(7),
             Constraint::Length(5),
         ])
@@ -214,7 +237,20 @@ impl Modal for CreateTaskModal {
         match self.current_field {
             Field::Name => self.name_input.insert_paste(text),
             Field::Notes => self.notes_input.insert_paste(text),
-            Field::LinkUrl => self.link_url_input.insert_paste(text),
+            Field::LinkUrl => {
+                // Enforce max lines on paste
+                let current_lines = self.link_url_input.value.split('\n').count();
+                let remaining = MAX_LINK_LINES.saturating_sub(current_lines);
+                let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+                let paste_lines: Vec<&str> = normalized.split('\n').collect();
+                // Allow first line always (appends to current line), then up to remaining new lines
+                let limited: String = if paste_lines.len() <= remaining + 1 {
+                    normalized
+                } else {
+                    paste_lines[..remaining + 1].join("\n")
+                };
+                self.link_url_input.insert_paste(&limited);
+            }
             _ => {}
         }
     }

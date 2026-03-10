@@ -547,9 +547,9 @@ impl App {
                 priority,
                 agent_cli,
                 notes,
-                link,
+                links,
             } => {
-                self.handle_create_task(project_id, name, priority, agent_cli, notes, link)?;
+                self.handle_create_task(project_id, name, priority, agent_cli, notes, links)?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
@@ -772,7 +772,7 @@ impl App {
         priority: crate::domain::task::Priority,
         agent_cli: AgentCli,
         notes: Option<String>,
-        link: Option<crate::domain::task::TaskLink>,
+        links: Vec<crate::domain::task::TaskLink>,
     ) -> AppResult<()> {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
@@ -850,7 +850,7 @@ impl App {
             status: crate::domain::task::Status::Todo,
             agent_cli,
             worktrees,
-            links: link.into_iter().collect(),
+            links,
             notes,
             tmux_session: tmux_session.clone(),
             created_at: now,

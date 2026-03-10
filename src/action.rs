@@ -45,7 +45,7 @@ pub enum Action {
         priority: Priority,
         agent_cli: AgentCli,
         notes: Option<String>,
-        link: Option<TaskLink>,
+        links: Vec<TaskLink>,
     },
     UpdateTask {
         task_id: String,
