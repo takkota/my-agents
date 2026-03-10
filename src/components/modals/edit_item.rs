@@ -168,6 +168,7 @@ impl Modal for EditProjectModal {
                     ProjectField::Name => match key.code {
                         KeyCode::Char(c) => self.name_input.insert_char(c),
                         KeyCode::Backspace => self.name_input.delete_char(),
+                        KeyCode::Delete => self.name_input.delete_forward_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
                         KeyCode::Home => self.name_input.move_to_start(),
@@ -177,6 +178,7 @@ impl Modal for EditProjectModal {
                     ProjectField::CopyFiles => match key.code {
                         KeyCode::Char(c) => self.copy_files_input.insert_char(c),
                         KeyCode::Backspace => self.copy_files_input.delete_char(),
+                        KeyCode::Delete => self.copy_files_input.delete_forward_char(),
                         KeyCode::Left => self.copy_files_input.move_left(),
                         KeyCode::Right => self.copy_files_input.move_right(),
                         KeyCode::Home => self.copy_files_input.move_to_start(),
@@ -347,6 +349,7 @@ impl Modal for EditTaskModal {
                     TaskField::Name => match key.code {
                         KeyCode::Char(c) => self.name_input.insert_char(c),
                         KeyCode::Backspace => self.name_input.delete_char(),
+                        KeyCode::Delete => self.name_input.delete_forward_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
                         KeyCode::Home => self.name_input.move_to_start(),
@@ -356,6 +359,7 @@ impl Modal for EditTaskModal {
                     TaskField::Notes => match key.code {
                         KeyCode::Char(c) => self.notes_input.insert_char(c),
                         KeyCode::Backspace => self.notes_input.delete_char(),
+                        KeyCode::Delete => self.notes_input.delete_forward_char(),
                         KeyCode::Left => self.notes_input.move_left(),
                         KeyCode::Right => self.notes_input.move_right(),
                         KeyCode::Home => self.notes_input.move_to_start(),

@@ -138,6 +138,9 @@ impl Modal for CreateProjectModal {
                         KeyCode::Backspace => {
                             self.name_input.delete_char();
                         }
+                        KeyCode::Delete => {
+                            self.name_input.delete_forward_char();
+                        }
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
                         KeyCode::Home => self.name_input.move_to_start(),
@@ -150,6 +153,9 @@ impl Modal for CreateProjectModal {
                         }
                         KeyCode::Backspace => {
                             self.copy_files_input.delete_char();
+                        }
+                        KeyCode::Delete => {
+                            self.copy_files_input.delete_forward_char();
                         }
                         KeyCode::Left => self.copy_files_input.move_left(),
                         KeyCode::Right => self.copy_files_input.move_right(),

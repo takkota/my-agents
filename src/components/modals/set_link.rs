@@ -86,6 +86,7 @@ impl Modal for SetLinkModal {
                 match key.code {
                     KeyCode::Char(c) => input.insert_char(c),
                     KeyCode::Backspace => input.delete_char(),
+                    KeyCode::Delete => input.delete_forward_char(),
                     KeyCode::Left => input.move_left(),
                     KeyCode::Right => input.move_right(),
                     KeyCode::Home => input.move_to_start(),

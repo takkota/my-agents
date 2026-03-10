@@ -152,6 +152,7 @@ impl Modal for CreateTaskModal {
                     Field::Name => match key.code {
                         KeyCode::Char(c) => self.name_input.insert_char(c),
                         KeyCode::Backspace => self.name_input.delete_char(),
+                        KeyCode::Delete => self.name_input.delete_forward_char(),
                         KeyCode::Left => self.name_input.move_left(),
                         KeyCode::Right => self.name_input.move_right(),
                         KeyCode::Home => self.name_input.move_to_start(),
@@ -161,6 +162,7 @@ impl Modal for CreateTaskModal {
                     Field::Notes => match key.code {
                         KeyCode::Char(c) => self.notes_input.insert_char(c),
                         KeyCode::Backspace => self.notes_input.delete_char(),
+                        KeyCode::Delete => self.notes_input.delete_forward_char(),
                         KeyCode::Left => self.notes_input.move_left(),
                         KeyCode::Right => self.notes_input.move_right(),
                         KeyCode::Home => self.notes_input.move_to_start(),
@@ -170,6 +172,7 @@ impl Modal for CreateTaskModal {
                     Field::LinkUrl => match key.code {
                         KeyCode::Char(c) => self.link_url_input.insert_char(c),
                         KeyCode::Backspace => self.link_url_input.delete_char(),
+                        KeyCode::Delete => self.link_url_input.delete_forward_char(),
                         KeyCode::Left => self.link_url_input.move_left(),
                         KeyCode::Right => self.link_url_input.move_right(),
                         KeyCode::Home => self.link_url_input.move_to_start(),

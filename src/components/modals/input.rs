@@ -60,6 +60,13 @@ impl TextInput {
         }
     }
 
+    pub fn delete_forward_char(&mut self) {
+        if self.cursor < self.value.chars().count() {
+            let byte_pos = self.byte_offset();
+            self.value.remove(byte_pos);
+        }
+    }
+
     pub fn move_left(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;

@@ -187,7 +187,7 @@ impl App {
     }
 
     pub fn handle_key_event(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
-        // Remap Ctrl+N/P to arrow keys, Ctrl+F/B/A/E to cursor movement
+        // Remap Ctrl+N/P to arrow keys, Ctrl+F/B/A/E to cursor movement, Ctrl+H/D to delete
         let key = if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('n') => KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
@@ -196,6 +196,8 @@ impl App {
                 KeyCode::Char('b') => KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
                 KeyCode::Char('a') => KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
                 KeyCode::Char('e') => KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
+                KeyCode::Char('h') => KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                KeyCode::Char('d') => KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
                 _ => key,
             }
         } else {
