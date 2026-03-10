@@ -167,7 +167,6 @@ impl PreviewPanel {
                     .title(" Task Info ")
                     .border_style(Style::default().fg(Color::Cyan)),
             )
-            .wrap(Wrap { trim: false })
     }
 
     fn render_task_info(&self, frame: &mut Frame, area: Rect) {
