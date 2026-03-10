@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ma-task: CLI tool for AI agents to manage my-agents tasks
+# Reads/writes task.json files under ~/.my-agents/projects/
+
+DATA_DIR="${MY_AGENTS_DATA_DIR:-${HOME}/.my-agents}"
+PROJECTS_DIR="${DATA_DIR}/projects"
+
+# ── Helpers ──────────────────────────────────────────────
+
+die() { echo "error: $*" >&2; exit 1; }
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found"
+}
+
+# Ensure jq is available
+need_cmd jq
+
+now_iso() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+gen_id() {
+    # Generate 8-char hex ID (similar to UUID v4 prefix)
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8
+    else
+        head -c 4 /dev/urandom | od -A n -t x1 | tr -d ' \n' | cut -c1-8
+    fi
+}
+
+task_json_path() {
+    local project_id="$1" task_id="$2"
+    echo "${PROJECTS_DIR}/${project_id}/tasks/${task_id}/task.json"
+}
+
+read_task() {
+    local path
+    path="$(task_json_path "$1" "$2")"
+    [ -f "$path" ] || die "task not found: $1/$2"
+    cat "$path"
+}
+
+write_task() {
+    local project_id="$1" task_id="$2" json="$3"
+    local path
+    path="$(task_json_path "$project_id" "$task_id")"
+    mkdir -p "$(dirname "$path")"
+    echo "$json" | jq . > "$path"
+}
+
+# Find task by ID across all projects (using first 6+ char prefix match)
+find_task() {
+    local search_id="$1"
+    local found_project="" found_task=""
+    for project_dir in "${PROJECTS_DIR}"/*/; do
+        [ -d "$project_dir" ] || continue
+        local pid
+        pid="$(basename "$project_dir")"
+        local tasks_dir="${project_dir}tasks"
+        [ -d "$tasks_dir" ] || continue
+        for task_dir in "${tasks_dir}"/*/; do
+            [ -d "$task_dir" ] || continue
+            local tid
+            tid="$(basename "$task_dir")"
+            if [ "$tid" = "$search_id" ] || [[ "$tid" == "${search_id}"* ]]; then
+                if [ -n "$found_task" ]; then
+                    die "ambiguous task ID '${search_id}': matches multiple tasks"
+                fi
+                found_project="$pid"
+                found_task="$tid"
+            fi
+        done
+    done
+    [ -n "$found_task" ] || die "task not found: ${search_id}"
+    echo "${found_project}/${found_task}"
+}
+
+# ── Detect current context from CWD ─────────────────────
+
+detect_context() {
+    local cwd
+    cwd="$(pwd)"
+    if [[ "$cwd" =~ \.my-agents/projects/([^/]+)/tasks/([^/]+) ]]; then
+        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    else
+        return 1
+    fi
+}
+
+# ── Commands ─────────────────────────────────────────────
+
+cmd_current() {
+    local ctx
+    ctx="$(detect_context)" || die "not inside a my-agents task directory"
+    local project_id task_id
+    project_id="${ctx%%/*}"
+    task_id="${ctx#*/}"
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+    echo "$json"
+}
+
+cmd_get() {
+    local task_id="${1:?usage: ma-task get <task-id>}"
+    # Try detect project from context first
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        local path
+        path="$(task_json_path "$project_id" "$task_id")"
+        if [ -f "$path" ]; then
+            cat "$path"
+            return
+        fi
+    fi
+    # Search across all projects
+    local found
+    found="$(find_task "$task_id")"
+    project_id="${found%%/*}"
+    task_id="${found#*/}"
+    read_task "$project_id" "$task_id"
+}
+
+cmd_list() {
+    local project_id=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --project|-p) project_id="${2:?--project requires value}"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    # Auto-detect project if not specified
+    if [ -z "$project_id" ]; then
+        if ctx="$(detect_context 2>/dev/null)"; then
+            project_id="${ctx%%/*}"
+        else
+            die "specify --project or run from inside a task directory"
+        fi
+    fi
+
+    local tasks_dir="${PROJECTS_DIR}/${project_id}/tasks"
+    [ -d "$tasks_dir" ] || die "project not found: ${project_id}"
+
+    local first=true
+    echo "["
+    for task_dir in "${tasks_dir}"/*/; do
+        [ -d "$task_dir" ] || continue
+        local task_file="${task_dir}task.json"
+        [ -f "$task_file" ] || continue
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo ","
+        fi
+        cat "$task_file"
+    done
+    echo "]"
+}
+
+cmd_create() {
+    local project_id="" name="" priority="P3" agent_cli="None" notes=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --project|-p) project_id="${2:?--project requires value}"; shift 2 ;;
+            --name|-n) name="${2:?--name requires value}"; shift 2 ;;
+            --priority) priority="${2:?--priority requires value}"; shift 2 ;;
+            --agent) agent_cli="${2:?--agent requires value}"; shift 2 ;;
+            --notes) notes="${2:?--notes requires value}"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    [ -n "$project_id" ] || {
+        if ctx="$(detect_context 2>/dev/null)"; then
+            project_id="${ctx%%/*}"
+        else
+            die "--project is required"
+        fi
+    }
+    [ -n "$name" ] || die "--name is required"
+
+    # Validate project exists
+    [ -d "${PROJECTS_DIR}/${project_id}" ] || die "project not found: ${project_id}"
+
+    # Validate priority
+    case "$priority" in
+        P1|P2|P3|P4|P5) ;;
+        *) die "invalid priority: ${priority} (use P1-P5)" ;;
+    esac
+
+    # Validate agent_cli
+    case "$agent_cli" in
+        Claude|Codex|None|claude|codex|none)
+            # Normalize capitalization
+            agent_cli="$(echo "$agent_cli" | sed 's/^./\U&/')"
+            ;;
+        *) die "invalid agent: ${agent_cli} (use Claude, Codex, or None)" ;;
+    esac
+
+    local task_id now
+    task_id="$(gen_id)"
+    now="$(now_iso)"
+
+    # Ensure unique ID
+    while [ -d "${PROJECTS_DIR}/${project_id}/tasks/${task_id}" ]; do
+        task_id="$(gen_id)"
+    done
+
+    local notes_json="null"
+    [ -z "$notes" ] || notes_json="$(echo "$notes" | jq -Rs .)"
+
+    local json
+    json="$(jq -n \
+        --arg id "$task_id" \
+        --arg pid "$project_id" \
+        --arg name "$name" \
+        --arg priority "$priority" \
+        --arg agent "$agent_cli" \
+        --argjson notes "$notes_json" \
+        --arg now "$now" \
+        '{
+            id: $id,
+            project_id: $pid,
+            name: $name,
+            priority: $priority,
+            status: "Todo",
+            agent_cli: $agent,
+            worktrees: [],
+            links: [],
+            notes: $notes,
+            tmux_session: null,
+            created_at: $now,
+            updated_at: $now
+        }')"
+
+    write_task "$project_id" "$task_id" "$json"
+    echo "$json"
+}
+
+cmd_update() {
+    local task_id="${1:?usage: ma-task update <task-id> [--name ...] [--priority ...] [--notes ...]}"; shift
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name|-n)
+                json="$(echo "$json" | jq --arg v "$2" '.name = $v')"
+                shift 2 ;;
+            --priority)
+                case "$2" in
+                    P1|P2|P3|P4|P5) ;;
+                    *) die "invalid priority: $2" ;;
+                esac
+                json="$(echo "$json" | jq --arg v "$2" '.priority = $v')"
+                shift 2 ;;
+            --notes)
+                json="$(echo "$json" | jq --arg v "$2" '.notes = $v')"
+                shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    json="$(echo "$json" | jq --arg now "$(now_iso)" '.updated_at = $now')"
+    write_task "$project_id" "$task_id" "$json"
+    echo "$json"
+}
+
+cmd_status() {
+    local task_id="${1:?usage: ma-task status <task-id> <status>}"
+    local new_status="${2:?usage: ma-task status <task-id> <status>}"
+
+    # Validate status
+    case "$new_status" in
+        Todo|InProgress|InReview|Completed|Blocked) ;;
+        todo) new_status="Todo" ;;
+        inprogress|in-progress|in_progress) new_status="InProgress" ;;
+        inreview|in-review|in_review) new_status="InReview" ;;
+        completed|done) new_status="Completed" ;;
+        blocked) new_status="Blocked" ;;
+        *) die "invalid status: ${new_status} (use Todo, InProgress, InReview, Completed, Blocked)" ;;
+    esac
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+    json="$(echo "$json" | jq --arg s "$new_status" --arg now "$(now_iso)" '.status = $s | .updated_at = $now')"
+    write_task "$project_id" "$task_id" "$json"
+    echo "$json"
+}
+
+cmd_link() {
+    local task_id="${1:?usage: ma-task link <task-id> <url> [--name <display-name>]}"
+    local url="${2:?usage: ma-task link <task-id> <url> [--name <display-name>]}"
+    shift 2
+
+    local display_name=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name|-n) display_name="${2:?--name requires value}"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+    if [ -n "$display_name" ]; then
+        json="$(echo "$json" | jq --arg url "$url" --arg dn "$display_name" \
+            --arg now "$(now_iso)" \
+            '.links += [{"url": $url, "display_name": $dn}] | .updated_at = $now')"
+    else
+        json="$(echo "$json" | jq --arg url "$url" \
+            --arg now "$(now_iso)" \
+            '.links += [{"url": $url, "display_name": null}] | .updated_at = $now')"
+    fi
+    write_task "$project_id" "$task_id" "$json"
+    echo "$json"
+}
+
+cmd_help() {
+    cat <<'HELP'
+ma-task: Task management CLI for my-agents
+
+Usage: ma-task <command> [options]
+
+Commands:
+  current                          Show current task (auto-detected from CWD)
+  get <task-id>                    Get task details (JSON)
+  list [--project <id>]            List tasks in project (JSON array)
+  create --name <n> [options]      Create a new task
+  update <task-id> [options]       Update task fields
+  status <task-id> <status>        Change task status
+  link <task-id> <url> [--name n]  Add a link to task
+  help                             Show this help
+
+Create options:
+  --project, -p <id>    Project ID (auto-detected if in task dir)
+  --name, -n <name>     Task name (required)
+  --priority <P1-P5>    Priority (default: P3)
+  --agent <cli>         Agent CLI: Claude, Codex, None (default: None)
+  --notes <text>        Initial notes
+
+Update options:
+  --name, -n <name>     New task name
+  --priority <P1-P5>    New priority
+  --notes <text>        New notes
+
+Status values:
+  Todo, InProgress, InReview, Completed, Blocked
+HELP
+}
+
+# ── Main ─────────────────────────────────────────────────
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+    current) cmd_current "$@" ;;
+    get)     cmd_get "$@" ;;
+    list)    cmd_list "$@" ;;
+    create)  cmd_create "$@" ;;
+    update)  cmd_update "$@" ;;
+    status)  cmd_status "$@" ;;
+    link)    cmd_link "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *) die "unknown command: $cmd (run 'ma-task help')" ;;
+esac

@@ -51,6 +51,23 @@ impl TmuxService {
             anyhow::bail!("Failed to create tmux session: {}", name);
         }
 
+        // Add ~/.my-agents/bin to PATH so agents can use ma-task CLI
+        let bin_dir = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".my-agents")
+            .join("bin");
+        let path_cmd = format!(
+            "export PATH=\"{}:$PATH\"",
+            bin_dir.to_string_lossy()
+        );
+        Self::tmux_cmd()
+            .args(["send-keys", "-t", name, &path_cmd, "Enter"])
+            .output()?;
+        // Clear the export command from terminal display
+        Self::tmux_cmd()
+            .args(["send-keys", "-t", name, "clear", "Enter"])
+            .output()?;
+
         Ok(())
     }
 
