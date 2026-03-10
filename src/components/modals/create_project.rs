@@ -154,16 +154,14 @@ impl Modal for CreateProjectModal {
                         _ => {}
                     },
                     Field::Repos => match key.code {
-                        KeyCode::Up | KeyCode::Char('k') => self.repo_list.move_up(),
-                        KeyCode::Down | KeyCode::Char('j') => self.repo_list.move_down(),
+                        KeyCode::Up => self.repo_list.move_up(),
+                        KeyCode::Down => self.repo_list.move_down(),
                         KeyCode::Char(' ') => self.repo_list.toggle(),
                         KeyCode::Backspace => {
                             self.repo_list.filter_text.pop();
                             self.repo_list.cursor = 0;
                         }
-                        KeyCode::Char(c)
-                            if !matches!(c, 'j' | 'k') =>
-                        {
+                        KeyCode::Char(c) => {
                             self.repo_list.filter_text.push(c);
                             self.repo_list.cursor = 0;
                         }
