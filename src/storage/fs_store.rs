@@ -381,7 +381,7 @@ Valid statuses:
 
 - **Todo** — Not started yet.
 - **InProgress** — Currently being worked on.
-- **InReview** — Waiting for user review or PR review. Set this when you finish your work.
+- **ActionRequired** — Waiting for user action or review. Set this when you finish your work and need user input.
 - **Completed** — All PRs merged and work fully done. Usually set automatically by the system.
 - **Blocked** — Stopped due to an external dependency. Do not set this automatically; only when you truly cannot proceed.
 

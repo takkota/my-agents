@@ -26,7 +26,7 @@ pub struct TaskStats {
     pub total: usize,
     pub todo: usize,
     pub in_progress: usize,
-    pub in_review: usize,
+    pub action_required: usize,
     pub completed: usize,
     pub blocked: usize,
 }
@@ -205,7 +205,7 @@ impl PreviewPanel {
             let stat_items = [
                 ("  ○ Todo:        ", stats.todo, Color::White),
                 ("  ◉ In Progress: ", stats.in_progress, Color::Yellow),
-                ("  ◎ In Review:   ", stats.in_review, Color::Magenta),
+                ("  ⚠ Action Req:  ", stats.action_required, Color::LightRed),
                 ("  ● Completed:   ", stats.completed, Color::Green),
                 ("  ✕ Blocked:     ", stats.blocked, Color::Red),
             ];

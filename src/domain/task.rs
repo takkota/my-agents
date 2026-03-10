@@ -42,7 +42,7 @@ impl fmt::Display for Priority {
 pub enum Status {
     Todo,
     InProgress,
-    InReview,
+    ActionRequired,
     Completed,
     Blocked,
 }
@@ -52,7 +52,7 @@ impl Status {
         &[
             Status::Todo,
             Status::InProgress,
-            Status::InReview,
+            Status::ActionRequired,
             Status::Completed,
             Status::Blocked,
         ]
@@ -62,7 +62,7 @@ impl Status {
         match self {
             Status::Todo => "☐",
             Status::InProgress => "▶",
-            Status::InReview => "⏸",
+            Status::ActionRequired => "⚠",
             Status::Completed => "✓",
             Status::Blocked => "✕",
         }
@@ -74,7 +74,7 @@ impl fmt::Display for Status {
         match self {
             Status::Todo => write!(f, "Todo"),
             Status::InProgress => write!(f, "In Progress"),
-            Status::InReview => write!(f, "In Review"),
+            Status::ActionRequired => write!(f, "Action Required"),
             Status::Completed => write!(f, "Completed"),
             Status::Blocked => write!(f, "Blocked"),
         }

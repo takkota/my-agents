@@ -244,6 +244,7 @@ impl App {
             KeyCode::Char('m') => return Ok(Some(Action::OpenEditItem)),
             KeyCode::Char('d') => return Ok(Some(Action::OpenConfirmDelete)),
             KeyCode::Char('f') => return Ok(Some(Action::OpenFilter)),
+            KeyCode::Char('A') => return Ok(Some(Action::FilterActionRequired)),
             KeyCode::Char('s') => return Ok(Some(Action::OpenSort)),
             KeyCode::Char('S') | KeyCode::Char('$') => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('S') {
@@ -422,6 +423,19 @@ impl App {
             Action::OpenFilter => {
                 let current = self.task_tree.status_filter.as_deref();
                 self.active_modal = Some(ModalKind::Filter(FilterModal::new(current)));
+            }
+            Action::FilterActionRequired => {
+                // Toggle: if already filtering ActionRequired only, clear filter
+                let is_already = matches!(
+                    &self.task_tree.status_filter,
+                    Some(f) if f.len() == 1 && f[0] == Status::ActionRequired
+                );
+                if is_already {
+                    self.task_tree.status_filter = None;
+                } else {
+                    self.task_tree.status_filter = Some(vec![Status::ActionRequired]);
+                }
+                self.rebuild_tree();
             }
             Action::OpenSort => {
                 self.active_modal =
@@ -952,7 +966,7 @@ impl App {
                         match t.status {
                             crate::domain::task::Status::Todo => stats.todo += 1,
                             crate::domain::task::Status::InProgress => stats.in_progress += 1,
-                            crate::domain::task::Status::InReview => stats.in_review += 1,
+                            crate::domain::task::Status::ActionRequired => stats.action_required += 1,
                             crate::domain::task::Status::Completed => stats.completed += 1,
                             crate::domain::task::Status::Blocked => stats.blocked += 1,
                         }

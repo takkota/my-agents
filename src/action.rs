@@ -15,6 +15,7 @@ pub enum Action {
     OpenSetLink,
     OpenSetStatus,
     OpenFilter,
+    FilterActionRequired,
     OpenSort,
     OpenConfirmDelete,
     CloseModal,
