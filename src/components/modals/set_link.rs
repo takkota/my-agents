@@ -83,16 +83,7 @@ impl Modal for SetLinkModal {
                     Field::Url => &mut self.url_input,
                     Field::DisplayName => &mut self.name_input,
                 };
-                match key.code {
-                    KeyCode::Char(c) => input.insert_char(c),
-                    KeyCode::Backspace => input.delete_char(),
-                    KeyCode::Delete => input.delete_forward_char(),
-                    KeyCode::Left => input.move_left(),
-                    KeyCode::Right => input.move_right(),
-                    KeyCode::Home => input.move_to_start(),
-                    KeyCode::End => input.move_to_end(),
-                    _ => {}
-                }
+                input.handle_key(key);
                 Ok(None)
             }
         }

@@ -149,36 +149,9 @@ impl Modal for CreateTaskModal {
             }
             _ => {
                 match self.current_field {
-                    Field::Name => match key.code {
-                        KeyCode::Char(c) => self.name_input.insert_char(c),
-                        KeyCode::Backspace => self.name_input.delete_char(),
-                        KeyCode::Delete => self.name_input.delete_forward_char(),
-                        KeyCode::Left => self.name_input.move_left(),
-                        KeyCode::Right => self.name_input.move_right(),
-                        KeyCode::Home => self.name_input.move_to_start(),
-                        KeyCode::End => self.name_input.move_to_end(),
-                        _ => {}
-                    },
-                    Field::Notes => match key.code {
-                        KeyCode::Char(c) => self.notes_input.insert_char(c),
-                        KeyCode::Backspace => self.notes_input.delete_char(),
-                        KeyCode::Delete => self.notes_input.delete_forward_char(),
-                        KeyCode::Left => self.notes_input.move_left(),
-                        KeyCode::Right => self.notes_input.move_right(),
-                        KeyCode::Home => self.notes_input.move_to_start(),
-                        KeyCode::End => self.notes_input.move_to_end(),
-                        _ => {}
-                    },
-                    Field::LinkUrl => match key.code {
-                        KeyCode::Char(c) => self.link_url_input.insert_char(c),
-                        KeyCode::Backspace => self.link_url_input.delete_char(),
-                        KeyCode::Delete => self.link_url_input.delete_forward_char(),
-                        KeyCode::Left => self.link_url_input.move_left(),
-                        KeyCode::Right => self.link_url_input.move_right(),
-                        KeyCode::Home => self.link_url_input.move_to_start(),
-                        KeyCode::End => self.link_url_input.move_to_end(),
-                        _ => {}
-                    },
+                    Field::Name => { self.name_input.handle_key(key); },
+                    Field::Notes => { self.notes_input.handle_key(key); },
+                    Field::LinkUrl => { self.link_url_input.handle_key(key); },
                     Field::Priority => match key.code {
                         KeyCode::Up | KeyCode::Char('k') => self.priority_list.move_up(),
                         KeyCode::Down | KeyCode::Char('j') => self.priority_list.move_down(),
