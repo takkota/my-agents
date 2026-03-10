@@ -40,7 +40,7 @@ fn default_monitor_interval() -> u64 {
 }
 
 fn default_pr_monitor_interval() -> u64 {
-    60
+    30
 }
 
 impl Default for Config {
