@@ -235,7 +235,7 @@ impl FsStore {
 
     /// Write `.claude/settings.json` in the task directory with hooks that
     /// signal task state changes (Stop and Notification/idle_prompt).
-    fn write_claude_hooks(&self, task: &Task) -> AppResult<()> {
+    pub fn write_claude_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
         let signal_path = task_dir.join(".agent_signal");
         let signal_path_str = signal_path.to_string_lossy();
@@ -247,9 +247,11 @@ impl FsStore {
         // - Stop hook: write "stop" to signal file when agent completes
         // - Notification hook: write "idle" to signal file on any notification
         //   (covers idle_prompt, permission_prompt, etc.)
-        // - PreToolUse hook: clear signal file when agent starts working
+        // - PreToolUse hook: clear signal file and manual_todo marker when agent starts working
         let pr_links_path = task_dir.join(".pr_links");
         let pr_links_path_str = pr_links_path.to_string_lossy();
+        let manual_todo_path = task_dir.join(".manual_todo");
+        let manual_todo_path_str = manual_todo_path.to_string_lossy();
 
         let settings = serde_json::json!({
             "hooks": {
@@ -260,7 +262,7 @@ impl FsStore {
                             {
                                 "type": "command",
                                 "command": format!(
-                                    "echo stop > {}",
+                                    "echo stop > {} </dev/null",
                                     shell_escape(&signal_path_str)
                                 )
                             }
@@ -274,7 +276,7 @@ impl FsStore {
                             {
                                 "type": "command",
                                 "command": format!(
-                                    "echo idle > {}",
+                                    "echo idle > {} </dev/null",
                                     shell_escape(&signal_path_str)
                                 )
                             }
@@ -288,8 +290,9 @@ impl FsStore {
                             {
                                 "type": "command",
                                 "command": format!(
-                                    "rm -f {}",
-                                    shell_escape(&signal_path_str)
+                                    "rm -f {} {} </dev/null",
+                                    shell_escape(&signal_path_str),
+                                    shell_escape(&manual_todo_path_str)
                                 )
                             }
                         ]

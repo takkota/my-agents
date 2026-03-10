@@ -120,6 +120,16 @@ impl App {
 
         app.reload_data()?;
 
+        // Re-generate Claude Code hooks for all existing Claude tasks
+        // to ensure latest hook configuration (e.g. .manual_todo cleanup).
+        for tasks in app.tasks_by_project.values() {
+            for task in tasks {
+                if task.agent_cli == AgentCli::Claude {
+                    let _ = app.store.write_claude_hooks(task);
+                }
+            }
+        }
+
         // Expand all projects by default
         for p in &app.projects {
             app.task_tree.expanded.insert(p.id.clone());
@@ -572,8 +582,9 @@ impl App {
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
                         if task.agent_cli == AgentCli::Claude {
-                            let signal_path = self.store.task_dir(&project_id, &task_id)
-                                .join(".agent_signal");
+                            let task_dir = self.store.task_dir(&project_id, &task_id);
+                            let signal_path = task_dir.join(".agent_signal");
+                            let manual_todo_path = task_dir.join(".manual_todo");
                             let res = if status == Status::InReview {
                                 std::fs::write(&signal_path, "manual\n")
                             } else {
@@ -587,6 +598,23 @@ impl App {
                             };
                             if let Err(e) = res {
                                 self.error_message = Some(format!("Signal file sync failed: {}", e));
+                            }
+
+                            // When manually setting Todo, write marker so the monitor
+                            // won't flip to InProgress until PreToolUse clears it.
+                            let todo_res = if status == Status::Todo {
+                                std::fs::write(&manual_todo_path, "manual\n")
+                            } else {
+                                std::fs::remove_file(&manual_todo_path).or_else(|e| {
+                                    if e.kind() == std::io::ErrorKind::NotFound {
+                                        Ok(())
+                                    } else {
+                                        Err(e)
+                                    }
+                                })
+                            };
+                            if let Err(e) = todo_res {
+                                self.error_message = Some(format!("Manual todo marker sync failed: {}", e));
                             }
                         }
                     }
@@ -843,6 +871,12 @@ impl App {
             }
             let _ = std::fs::remove_dir_all(&task_dir);
             return Err(e);
+        }
+
+        // Write .manual_todo marker so the monitor keeps the task in Todo
+        // until the agent actually starts executing tools (PreToolUse clears it).
+        if task.agent_cli == AgentCli::Claude {
+            let _ = std::fs::write(task_dir.join(".manual_todo"), "manual\n");
         }
 
         Ok(())

@@ -18,6 +18,10 @@ const SIGNAL_FILE: &str = ".agent_signal";
 /// File where PostToolUse hook appends discovered PR URLs.
 const PR_LINKS_FILE: &str = ".pr_links";
 
+/// Marker file created when user manually sets Todo status.
+/// Cleared by PreToolUse hook when Claude Code actually starts working (tool execution).
+const MANUAL_TODO_FILE: &str = ".manual_todo";
+
 impl AgentMonitor {
     pub fn new(store: FsStore, tmux: TmuxService) -> Self {
         Self { store, tmux }
@@ -46,9 +50,10 @@ impl AgentMonitor {
     /// Claude Code: check signal file written by hooks.
     /// - Signal file exists + InProgress → InReview (agent stopped or idle)
     /// - Signal file absent + tmux session alive → InProgress (PreToolUse hook cleared it)
-    /// - Todo + tmux session alive → InProgress (stale signal is cleared first)
+    /// - Todo + `.manual_todo` absent + session alive → InProgress (agent started real work)
+    /// - Todo + `.manual_todo` present → stay Todo (agent hasn't used tools yet)
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
-    /// Note: Todo → InReview is NOT allowed; Todo can only transition to InProgress or Blocked.
+    ///   Note: Todo → InReview is NOT allowed; Todo can only transition to InProgress or Blocked.
     fn check_claude_task(
         &self,
         task_id: &str,
@@ -56,16 +61,23 @@ impl AgentMonitor {
         current_status: &Status,
         tmux_session: &Option<String>,
     ) -> Option<MonitorEvent> {
-        let signal_path = self.store.task_dir(project_id, task_id).join(SIGNAL_FILE);
+        let task_dir = self.store.task_dir(project_id, task_id);
+        let signal_path = task_dir.join(SIGNAL_FILE);
+        let manual_todo_path = task_dir.join(MANUAL_TODO_FILE);
         let session_alive = tmux_session
             .as_deref()
             .is_some_and(|s| self.tmux.session_exists(s));
 
-        // Todo requires special handling: session liveness takes priority over
-        // signal file state, because a stale signal may have been left behind.
+        // Todo requires special handling: only transition to InProgress when the
+        // `.manual_todo` marker has been cleared by PreToolUse hook, meaning the
+        // agent has actually started executing tools (not just user typing).
         if *current_status == Status::Todo {
             if session_alive {
-                // Agent is running — clear any stale signal and move to InProgress
+                if manual_todo_path.exists() {
+                    // Manual Todo marker still present — agent hasn't started real work yet
+                    return None;
+                }
+                // No manual marker — either never set manually, or PreToolUse cleared it
                 let _ = std::fs::remove_file(&signal_path);
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
@@ -179,4 +191,3 @@ fn is_github_pr_url(url: &str) -> bool {
         && parts[len - 1].chars().all(|c| c.is_ascii_digit())
         && url.starts_with("https://github.com/")
 }
-
