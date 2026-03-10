@@ -26,11 +26,13 @@ pub enum Action {
     CreateProject {
         name: String,
         repos: Vec<(String, PathBuf)>,
+        worktree_copy_files: Vec<String>,
     },
     UpdateProject {
         project_id: String,
         name: String,
         repos: Vec<(String, PathBuf)>,
+        worktree_copy_files: Vec<String>,
     },
     DeleteProject {
         project_id: String,

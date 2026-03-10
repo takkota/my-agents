@@ -192,6 +192,7 @@ impl FsStore {
                 name: "home".to_string(),
                 path: home,
             }],
+            worktree_copy_files: Vec::new(),
             created_at: now,
             updated_at: now,
         };
