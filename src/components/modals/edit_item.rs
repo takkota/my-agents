@@ -1,9 +1,9 @@
-use super::input::{MultiSelectList, SelectList, TextInput};
+use super::input::{MultiSelectList, SelectList, TextArea, TextInput};
 use super::Modal;
 use crate::action::Action;
 use crate::domain::task::Priority;
 use crate::error::AppResult;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear};
@@ -227,7 +227,7 @@ pub struct EditTaskModal {
     task_id: String,
     project_id: String,
     name_input: TextInput,
-    notes_input: TextInput,
+    notes_input: TextArea,
     priority_list: SelectList<Priority>,
     current_field: TaskField,
 }
@@ -243,7 +243,7 @@ impl EditTaskModal {
         let mut name_input = TextInput::new("Task Name").with_value(&current_name);
         name_input.focused = true;
         let notes_input =
-            TextInput::new("Notes").with_value(current_notes.as_deref().unwrap_or(""));
+            TextArea::new("Notes").with_value(current_notes.as_deref().unwrap_or(""));
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
             .iter()
@@ -294,6 +294,17 @@ impl EditTaskModal {
 
 impl Modal for EditTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // In Notes field, pass Shift+Enter (newline) and Up/Down (line nav) to TextArea
+        if matches!(self.current_field, TaskField::Notes) {
+            if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT) {
+                self.notes_input.handle_key(key);
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                self.notes_input.handle_key(key);
+                return Ok(None);
+            }
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab => {
@@ -355,7 +366,7 @@ impl Modal for EditTaskModal {
         });
         let chunks = Layout::vertical([
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(5),
             Constraint::Length(7),
         ])
         .split(inner);

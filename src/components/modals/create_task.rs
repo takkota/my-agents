@@ -1,9 +1,9 @@
-use super::input::{SelectList, TextInput};
+use super::input::{SelectList, TextArea, TextInput};
 use super::Modal;
 use crate::action::Action;
 use crate::domain::task::{AgentCli, Priority, TaskLink};
 use crate::error::AppResult;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear};
@@ -20,7 +20,7 @@ enum Field {
 pub struct CreateTaskModal {
     project_id: String,
     name_input: TextInput,
-    notes_input: TextInput,
+    notes_input: TextArea,
     link_url_input: TextInput,
     priority_list: SelectList<Priority>,
     agent_list: SelectList<AgentCli>,
@@ -32,7 +32,7 @@ impl CreateTaskModal {
         let mut name_input = TextInput::new("Task Name");
         name_input.focused = true;
 
-        let notes_input = TextInput::new("Notes");
+        let notes_input = TextArea::new("Notes");
         let link_url_input = TextInput::new("Link URL");
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
@@ -100,6 +100,17 @@ impl CreateTaskModal {
 
 impl Modal for CreateTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // In Notes field, pass Shift+Enter (newline) and Up/Down (line nav) to TextArea
+        if matches!(self.current_field, Field::Notes) {
+            if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT) {
+                self.notes_input.handle_key(key);
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                self.notes_input.handle_key(key);
+                return Ok(None);
+            }
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab => {
@@ -184,7 +195,7 @@ impl Modal for CreateTaskModal {
 
         let chunks = Layout::vertical([
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(5),
             Constraint::Length(3),
             Constraint::Length(7),
             Constraint::Length(5),
