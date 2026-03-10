@@ -2,6 +2,7 @@ use crate::error::AppResult;
 use crossterm::{
     execute,
     event::{
+        DisableMouseCapture,
         EnableBracketedPaste, DisableBracketedPaste,
         KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
     },
@@ -30,7 +31,7 @@ pub fn enter() -> AppResult<Tui> {
 pub fn exit() -> AppResult<()> {
     disable_raw_mode()?;
     let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
-    execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste, DisableMouseCapture)?;
     Ok(())
 }
 
