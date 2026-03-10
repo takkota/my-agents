@@ -68,16 +68,29 @@ impl AgentMonitor {
             .as_deref()
             .is_some_and(|s| self.tmux.session_exists(s));
 
-        // Todo requires special handling: only transition to InProgress when the
-        // `.manual_todo` marker has been cleared by PreToolUse hook, meaning the
-        // agent has actually started executing tools (not just user typing).
+        // Todo requires special handling: only transition when there is evidence
+        // that the agent has actually done work.
+        //
+        // Evidence of activity:
+        //   1. PreToolUse hook cleared `.manual_todo` (agent executed tools)
+        //   2. Signal file exists (Stop/Notification hook fired = agent responded)
+        //
+        // If `.manual_todo` exists and no signal file, the agent hasn't responded
+        // yet (user may have just typed text), so we keep Todo.
         if *current_status == Status::Todo {
             if session_alive {
                 if manual_todo_path.exists() {
-                    // Manual Todo marker still present — agent hasn't started real work yet
-                    return None;
+                    if signal_path.exists() {
+                        // Agent responded (signal file written by Stop/Notification hook)
+                        // even though PreToolUse didn't fire (no tool use).
+                        // Clear the manual marker and transition.
+                        let _ = std::fs::remove_file(&manual_todo_path);
+                    } else {
+                        // No signal file, no tool use — agent hasn't done anything yet
+                        return None;
+                    }
                 }
-                // No manual marker — either never set manually, or PreToolUse cleared it
+                // Manual marker absent — agent is actively working
                 let _ = std::fs::remove_file(&signal_path);
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
