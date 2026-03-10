@@ -686,6 +686,15 @@ impl App {
                     }
                 }
                 self.update_task(&project_id, &task_id, |task| {
+                    // When reopening a Completed task, record reopened_at so
+                    // PrMonitor won't auto-complete from already-merged PRs.
+                    if task.status == Status::Completed && status != Status::Completed {
+                        task.reopened_at = Some(Utc::now());
+                    }
+                    // Clear reopened_at when manually completing
+                    if status == Status::Completed {
+                        task.reopened_at = None;
+                    }
                     task.status = status;
                     task.updated_at = Utc::now();
                 })?;
@@ -820,6 +829,7 @@ impl App {
                         } => {
                             let _ = self.update_task(&project_id, &task_id, |task| {
                                 task.status = Status::Completed;
+                                task.reopened_at = None;
                                 task.updated_at = Utc::now();
                             });
                             data_changed = true;
@@ -876,6 +886,7 @@ impl App {
             tmux_session: None,
             created_at: now,
             updated_at: now,
+            reopened_at: None,
         };
 
         self.store.save_task(&task)?;
@@ -1018,6 +1029,7 @@ impl App {
                 id,
                 project_id,
                 has_session,
+                status,
                 ..
             } => {
                 if !has_session {
@@ -1029,7 +1041,18 @@ impl App {
                     .and_then(|tasks| tasks.iter().find(|t| t.id == id))
                     .and_then(|t| t.tmux_session.clone());
 
-                session_name.filter(|name| self.tmux.session_exists(name))
+                let session_name = session_name.filter(|name| self.tmux.session_exists(name))?;
+
+                // When attaching to a Completed task's session, reopen it as InProgress
+                if status == Status::Completed {
+                    let _ = self.update_task(&project_id, &id, |task| {
+                        task.reopened_at = Some(Utc::now());
+                        task.status = Status::InProgress;
+                        task.updated_at = Utc::now();
+                    });
+                }
+
+                Some(session_name)
             }
         }
     }

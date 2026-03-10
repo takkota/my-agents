@@ -1,5 +1,6 @@
 use crate::domain::task::{Status, TaskLink};
 use crate::storage::FsStore;
+use chrono::{DateTime, Utc};
 use std::process::Command;
 use std::sync::mpsc;
 
@@ -38,8 +39,10 @@ fn parse_github_pr(url: &str) -> Option<(String, String, String)> {
     None
 }
 
-/// Check if a PR is merged using the `gh` CLI.
-fn is_pr_merged(owner: &str, repo: &str, number: &str) -> Option<bool> {
+/// Check PR merge status. Returns `Some((true, Some(merged_at)))` if merged,
+/// `Some((true, None))` if merged but couldn't parse date,
+/// `Some((false, None))` if not merged, `None` on error.
+fn check_pr_merged(owner: &str, repo: &str, number: &str) -> Option<(bool, Option<DateTime<Utc>>)> {
     let output = Command::new("gh")
         .args([
             "pr",
@@ -48,9 +51,9 @@ fn is_pr_merged(owner: &str, repo: &str, number: &str) -> Option<bool> {
             "--repo",
             &format!("{}/{}", owner, repo),
             "--json",
-            "state",
+            "state,mergedAt",
             "-q",
-            ".state",
+            r#".state + "\t" + .mergedAt"#,
         ])
         .output()
         .ok()?;
@@ -59,8 +62,21 @@ fn is_pr_merged(owner: &str, repo: &str, number: &str) -> Option<bool> {
         return None;
     }
 
-    let state = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Some(state == "MERGED")
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let parts: Vec<&str> = raw.splitn(2, '\t').collect();
+    let state = parts.first().unwrap_or(&"");
+    let merged = *state == "MERGED";
+
+    if !merged {
+        return Some((false, None));
+    }
+
+    let merged_at = parts
+        .get(1)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+    Some((true, merged_at))
 }
 
 /// Extract all GitHub PR links from a task's links.
@@ -76,6 +92,7 @@ struct PrCheckTarget {
     task_id: String,
     project_id: String,
     prs: Vec<(String, String, String)>,
+    reopened_at: Option<DateTime<Utc>>,
 }
 
 impl PrMonitor {
@@ -107,6 +124,7 @@ impl PrMonitor {
                         task_id: t.id.clone(),
                         project_id: t.project_id.clone(),
                         prs,
+                        reopened_at: t.reopened_at,
                     })
                 }
             })
@@ -123,15 +141,35 @@ impl PrMonitor {
         std::thread::spawn(move || {
             let mut events = Vec::new();
             for target in &targets {
-                let all_merged = target.prs.iter().all(|(owner, repo, number)| {
-                    is_pr_merged(owner, repo, number).unwrap_or(false)
-                });
-                if all_merged {
-                    events.push(PrMonitorEvent::AllPrsMerged {
-                        task_id: target.task_id.clone(),
-                        project_id: target.project_id.clone(),
-                    });
+                let results: Vec<(bool, Option<DateTime<Utc>>)> = target
+                    .prs
+                    .iter()
+                    .filter_map(|(owner, repo, number)| check_pr_merged(owner, repo, number))
+                    .collect();
+
+                // All PRs must have been checked successfully and be merged
+                if results.len() != target.prs.len() {
+                    continue;
                 }
+                let all_merged = results.iter().all(|(merged, _)| *merged);
+                if !all_merged {
+                    continue;
+                }
+
+                // If task was reopened, require at least one PR merged after reopened_at
+                if let Some(reopened_at) = target.reopened_at {
+                    let has_new_merge = results.iter().any(|(_, merged_at)| {
+                        merged_at.is_some_and(|at| at > reopened_at)
+                    });
+                    if !has_new_merge {
+                        continue;
+                    }
+                }
+
+                events.push(PrMonitorEvent::AllPrsMerged {
+                    task_id: target.task_id.clone(),
+                    project_id: target.project_id.clone(),
+                });
             }
             let _ = tx.send(events);
         });
