@@ -14,7 +14,7 @@ use crate::components::status_bar::StatusBar;
 use crate::components::task_tree::{TaskTree, TreeItem};
 use crate::config::Config;
 use crate::domain::project::{Project, RepoRef};
-use crate::domain::task::{AgentCli, Status, Task};
+use crate::domain::task::{AgentCli, Priority, Status, Task};
 use crate::error::AppResult;
 use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
@@ -262,6 +262,24 @@ impl App {
                             }
                         }
                     }
+                }
+            }
+            KeyCode::Char(c @ '1'..='5') => {
+                if let Some(TreeItem::Task { id, project_id, .. }) =
+                    self.task_tree.selected_item()
+                {
+                    let priority = match c {
+                        '1' => Priority::P1,
+                        '2' => Priority::P2,
+                        '3' => Priority::P3,
+                        '4' => Priority::P4,
+                        _ => Priority::P5,
+                    };
+                    return Ok(Some(Action::UpdateTaskPriority {
+                        task_id: id.clone(),
+                        project_id: project_id.clone(),
+                        priority,
+                    }));
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
@@ -526,6 +544,18 @@ impl App {
                 self.reload_data()?;
                 self.rebuild_tree();
                 self.refresh_preview_task_info();
+            }
+            Action::UpdateTaskPriority {
+                task_id,
+                project_id,
+                priority,
+            } => {
+                self.update_task(&project_id, &task_id, |task| {
+                    task.priority = priority;
+                    task.updated_at = Utc::now();
+                })?;
+                self.reload_data()?;
+                self.rebuild_tree();
             }
             Action::UpdateTaskStatus {
                 task_id,
