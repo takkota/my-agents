@@ -23,6 +23,7 @@ pub enum TreeItem {
         agent_cli: crate::domain::task::AgentCli,
         has_session: bool,
         links: Vec<crate::domain::task::TaskLink>,
+        notes: Option<String>,
     },
 }
 
@@ -142,6 +143,7 @@ impl TaskTree {
                         agent_cli: task.agent_cli,
                         has_session,
                         links: task.links.clone(),
+                        notes: task.notes.clone(),
                     });
                 }
             }

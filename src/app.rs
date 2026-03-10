@@ -159,6 +159,22 @@ impl App {
             KeyCode::Char('L') => {
                 return Ok(Some(Action::OpenSetLink));
             }
+            KeyCode::Char('o') => {
+                // Open first link of selected task in external browser
+                if let Some(TreeItem::Task { id, project_id, .. }) =
+                    self.task_tree.selected_item()
+                {
+                    if let Some(tasks) = self.tasks_by_project.get(project_id.as_str()) {
+                        if let Some(task) = tasks.iter().find(|t| t.id == *id) {
+                            if let Some(link) = task.links.first() {
+                                return Ok(Some(Action::OpenLinkInBrowser {
+                                    url: link.url.clone(),
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
             KeyCode::Down | KeyCode::Char('j') => return Ok(Some(Action::MoveDown)),
             KeyCode::Enter => return Ok(Some(Action::AttachSession)),
@@ -247,10 +263,11 @@ impl App {
                             id,
                             project_id,
                             name,
+                            notes,
                             ..
                         } => {
                             self.active_modal = Some(ModalKind::EditItem(EditItemModal::Task(
-                                EditTaskModal::new(id, project_id, name),
+                                EditTaskModal::new(id, project_id, name, notes),
                             )));
                         }
                     }
@@ -387,19 +404,22 @@ impl App {
                 name,
                 priority,
                 agent_cli,
+                notes,
             } => {
-                self.handle_create_task(project_id, name, priority, agent_cli)?;
+                self.handle_create_task(project_id, name, priority, agent_cli, notes)?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
             }
-            Action::UpdateTaskName {
+            Action::UpdateTask {
                 task_id,
                 project_id,
                 name,
+                notes,
             } => {
                 self.update_task(&project_id, &task_id, |task| {
                     task.name = name;
+                    task.notes = notes;
                     task.updated_at = Utc::now();
                 })?;
                 self.active_modal = None;
@@ -447,6 +467,18 @@ impl App {
                 self.rebuild_tree();
             }
 
+            Action::OpenLinkInBrowser { url } => {
+                // Open URL in external browser using xdg-open (Linux) or open (macOS)
+                let cmd = if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                };
+                if let Err(e) = std::process::Command::new(cmd).arg(&url).spawn() {
+                    self.error_message = Some(format!("Failed to open link: {}", e));
+                }
+            }
+
             Action::AgentStatusChanged {
                 task_id,
                 project_id,
@@ -469,18 +501,29 @@ impl App {
                     }
                 }
 
-                // Update preview
-                let session_name = self.task_tree.selected_item().and_then(|item| {
+                // Update preview with task info
+                let selected_task = self.task_tree.selected_item().and_then(|item| {
                     if let TreeItem::Task { id, project_id, .. } = item {
                         self.tasks_by_project
                             .get(project_id.as_str())
                             .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
-                            .and_then(|t| t.tmux_session.as_deref())
                     } else {
                         None
                     }
                 });
-                let session_name_owned = session_name.map(|s| s.to_string());
+
+                let session_name_owned = selected_task
+                    .and_then(|t| t.tmux_session.as_deref())
+                    .map(|s| s.to_string());
+
+                // Update task info (links + notes)
+                if let Some(task) = selected_task {
+                    self.preview_panel
+                        .update_task_info(task.links.clone(), task.notes.clone());
+                } else {
+                    self.preview_panel.update_task_info(Vec::new(), None);
+                }
+
                 self.preview_panel
                     .update_preview(session_name_owned.as_deref(), &self.tmux);
             }
@@ -497,6 +540,7 @@ impl App {
         name: String,
         priority: crate::domain::task::Priority,
         agent_cli: AgentCli,
+        notes: Option<String>,
     ) -> AppResult<()> {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
@@ -558,6 +602,7 @@ impl App {
             agent_cli,
             worktrees,
             links: Vec::new(),
+            notes,
             tmux_session: tmux_session.clone(),
             created_at: now,
             updated_at: now,

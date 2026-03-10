@@ -207,6 +207,7 @@ impl FsStore {
             agent_cli: crate::domain::task::AgentCli::None,
             worktrees: vec![],
             links: vec![],
+            notes: None,
             tmux_session: None,
             created_at: now,
             updated_at: now,

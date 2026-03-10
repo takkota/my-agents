@@ -180,22 +180,53 @@ impl Modal for EditProjectModal {
     }
 }
 
-// Edit Task (only name)
+// Edit Task (name + notes)
+enum TaskField {
+    Name,
+    Notes,
+}
+
 pub struct EditTaskModal {
     task_id: String,
     project_id: String,
     name_input: TextInput,
+    notes_input: TextInput,
+    current_field: TaskField,
 }
 
 impl EditTaskModal {
-    pub fn new(task_id: String, project_id: String, current_name: String) -> Self {
+    pub fn new(
+        task_id: String,
+        project_id: String,
+        current_name: String,
+        current_notes: Option<String>,
+    ) -> Self {
         let mut name_input = TextInput::new("Task Name").with_value(&current_name);
         name_input.focused = true;
+        let notes_input =
+            TextInput::new("Notes").with_value(current_notes.as_deref().unwrap_or(""));
         Self {
             task_id,
             project_id,
             name_input,
+            notes_input,
+            current_field: TaskField::Name,
         }
+    }
+
+    fn next_field(&mut self) {
+        self.name_input.focused = false;
+        self.notes_input.focused = false;
+        self.current_field = match self.current_field {
+            TaskField::Name => {
+                self.notes_input.focused = true;
+                TaskField::Notes
+            }
+            TaskField::Notes => {
+                self.name_input.focused = true;
+                TaskField::Name
+            }
+        };
     }
 }
 
@@ -203,33 +234,45 @@ impl Modal for EditTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.next_field();
+                Ok(None)
+            }
             KeyCode::Enter => {
                 if self.name_input.value.is_empty() {
                     return Ok(None);
                 }
-                Ok(Some(Action::UpdateTaskName {
+                let notes = if self.notes_input.value.is_empty() {
+                    None
+                } else {
+                    Some(self.notes_input.value.clone())
+                };
+                Ok(Some(Action::UpdateTask {
                     task_id: self.task_id.clone(),
                     project_id: self.project_id.clone(),
                     name: self.name_input.value.clone(),
+                    notes,
                 }))
             }
-            KeyCode::Char(c) => {
-                self.name_input.insert_char(c);
+            _ => {
+                match self.current_field {
+                    TaskField::Name => match key.code {
+                        KeyCode::Char(c) => self.name_input.insert_char(c),
+                        KeyCode::Backspace => self.name_input.delete_char(),
+                        KeyCode::Left => self.name_input.move_left(),
+                        KeyCode::Right => self.name_input.move_right(),
+                        _ => {}
+                    },
+                    TaskField::Notes => match key.code {
+                        KeyCode::Char(c) => self.notes_input.insert_char(c),
+                        KeyCode::Backspace => self.notes_input.delete_char(),
+                        KeyCode::Left => self.notes_input.move_left(),
+                        KeyCode::Right => self.notes_input.move_right(),
+                        _ => {}
+                    },
+                }
                 Ok(None)
             }
-            KeyCode::Backspace => {
-                self.name_input.delete_char();
-                Ok(None)
-            }
-            KeyCode::Left => {
-                self.name_input.move_left();
-                Ok(None)
-            }
-            KeyCode::Right => {
-                self.name_input.move_right();
-                Ok(None)
-            }
-            _ => Ok(None),
         }
     }
 
@@ -245,7 +288,10 @@ impl Modal for EditTaskModal {
             vertical: 1,
             horizontal: 1,
         });
-        self.name_input.render(frame, inner);
+        let chunks = Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).split(inner);
+
+        self.name_input.render(frame, chunks[0]);
+        self.notes_input.render(frame, chunks[1]);
     }
 
     fn title(&self) -> &str {
