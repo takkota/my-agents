@@ -149,9 +149,12 @@ impl PreviewPanel {
                     .add_modifier(Modifier::BOLD),
             )]));
             for instr_line in instructions.lines() {
+                // Replace spaces with non-breaking spaces (U+00A0) so that
+                // Wrap breaks only at the area edge, not at word boundaries.
+                let display_line = instr_line.replace(' ', "\u{00A0}");
                 lines.push(Line::from(vec![
                     Span::raw("  "),
-                    Span::styled(instr_line.to_string(), Style::default().fg(Color::White)),
+                    Span::styled(display_line, Style::default().fg(Color::White)),
                 ]));
             }
         }
