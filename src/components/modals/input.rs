@@ -4,7 +4,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Simple single-line text input field (UTF-8 safe, cursor tracks char indices)
 #[derive(Debug, Clone)]
@@ -154,12 +154,23 @@ impl TextInput {
             Line::from(self.value.as_str())
         };
 
-        let input = Paragraph::new(display_value).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {} ", self.label))
-                .border_style(Style::default().fg(border_color)),
-        );
+        // Compute display width of text before cursor for horizontal scroll
+        let visible_width = area.width.saturating_sub(2) as usize;
+        let cursor_display_col = self.value[..self.byte_offset()].width();
+        let h_scroll = if visible_width > 0 && cursor_display_col >= visible_width {
+            (cursor_display_col - visible_width + 1) as u16
+        } else {
+            0
+        };
+
+        let input = Paragraph::new(display_value)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" {} ", self.label))
+                    .border_style(Style::default().fg(border_color)),
+            )
+            .scroll((0, h_scroll));
         frame.render_widget(input, area);
     }
 }
