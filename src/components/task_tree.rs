@@ -44,7 +44,7 @@ pub struct TaskTree {
     pub sort_mode: SortMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SortMode {
     CreatedDesc,
     UpdatedDesc,
@@ -53,12 +53,12 @@ pub enum SortMode {
 
 impl Default for SortMode {
     fn default() -> Self {
-        SortMode::CreatedDesc
+        SortMode::PriorityDesc
     }
 }
 
 impl TaskTree {
-    pub fn new() -> Self {
+    pub fn new(sort_mode: SortMode) -> Self {
         let mut state = ListState::default();
         state.select(Some(0));
         Self {
@@ -66,7 +66,7 @@ impl TaskTree {
             state,
             expanded: HashSet::new(),
             status_filter: None,
-            sort_mode: SortMode::default(),
+            sort_mode,
         }
     }
 

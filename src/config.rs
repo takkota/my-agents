@@ -1,3 +1,4 @@
+use crate::components::task_tree::SortMode;
 use crate::domain::task::AgentCli;
 use crate::error::AppResult;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,8 @@ pub struct Config {
     pub monitor_interval_secs: u64,
     #[serde(default = "default_pr_monitor_interval")]
     pub pr_monitor_interval_secs: u64,
+    #[serde(default)]
+    pub default_sort_mode: SortMode,
 }
 
 fn default_data_dir() -> PathBuf {
@@ -48,6 +51,7 @@ impl Default for Config {
             tick_rate_ms: default_tick_rate(),
             monitor_interval_secs: default_monitor_interval(),
             pr_monitor_interval_secs: default_pr_monitor_interval(),
+            default_sort_mode: SortMode::default(),
         }
     }
 }
