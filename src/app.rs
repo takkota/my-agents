@@ -566,16 +566,27 @@ impl App {
                 project_id,
                 status,
             } => {
-                // When manually setting InReview on a Claude task, create the
-                // signal file so the agent monitor doesn't immediately flip it
-                // back to InProgress.
-                if status == Status::InReview {
-                    if let Some(tasks) = self.tasks_by_project.get(&project_id) {
-                        if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
-                            if task.agent_cli == AgentCli::Claude {
-                                let signal_path = self.store.task_dir(&project_id, &task_id)
-                                    .join(".agent_signal");
-                                let _ = std::fs::write(&signal_path, "manual\n");
+                // Sync signal file with manual status changes on Claude tasks.
+                // - InReview: create signal file so monitor doesn't flip to InProgress
+                // - Other statuses: remove signal file so monitor doesn't flip to InReview
+                if let Some(tasks) = self.tasks_by_project.get(&project_id) {
+                    if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
+                        if task.agent_cli == AgentCli::Claude {
+                            let signal_path = self.store.task_dir(&project_id, &task_id)
+                                .join(".agent_signal");
+                            let res = if status == Status::InReview {
+                                std::fs::write(&signal_path, "manual\n")
+                            } else {
+                                std::fs::remove_file(&signal_path).or_else(|e| {
+                                    if e.kind() == std::io::ErrorKind::NotFound {
+                                        Ok(())
+                                    } else {
+                                        Err(e)
+                                    }
+                                })
+                            };
+                            if let Err(e) = res {
+                                self.error_message = Some(format!("Signal file sync failed: {}", e));
                             }
                         }
                     }
@@ -899,20 +910,66 @@ impl App {
     }
 
     fn refresh_preview_task_info(&mut self) {
-        let selected_task = self.task_tree.selected_item().and_then(|item| {
-            if let TreeItem::Task { id, project_id, .. } = item {
-                self.tasks_by_project
+        let selected = self.task_tree.selected_item();
+
+        match selected {
+            Some(TreeItem::Task { id, project_id, .. }) => {
+                let task = self
+                    .tasks_by_project
                     .get(project_id.as_str())
-                    .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
-            } else {
-                None
+                    .and_then(|tasks| tasks.iter().find(|t| t.id == *id));
+                if let Some(task) = task {
+                    self.preview_panel
+                        .update_task_info(task.links.clone(), task.notes.clone());
+                } else {
+                    self.preview_panel.update_task_info(Vec::new(), None);
+                }
             }
-        });
-        if let Some(task) = selected_task {
-            self.preview_panel
-                .update_task_info(task.links.clone(), task.notes.clone());
-        } else {
-            self.preview_panel.update_task_info(Vec::new(), None);
+            Some(TreeItem::Project { id, name, .. }) => {
+                let project = self.projects.iter().find(|p| p.id == *id);
+                let tasks = self.tasks_by_project.get(id.as_str());
+
+                let mut stats = crate::components::preview_panel::TaskStats::default();
+                if let Some(tasks) = tasks {
+                    stats.total = tasks.len();
+                    for t in tasks {
+                        match t.status {
+                            crate::domain::task::Status::Todo => stats.todo += 1,
+                            crate::domain::task::Status::InProgress => stats.in_progress += 1,
+                            crate::domain::task::Status::InReview => stats.in_review += 1,
+                            crate::domain::task::Status::Completed => stats.completed += 1,
+                            crate::domain::task::Status::Blocked => stats.blocked += 1,
+                        }
+                    }
+                }
+
+                let repos = project
+                    .map(|p| {
+                        p.repos
+                            .iter()
+                            .map(|r| crate::components::preview_panel::RepoInfo {
+                                name: r.name.clone(),
+                                path: r.path.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let worktree_copy_files = project
+                    .map(|p| p.worktree_copy_files.clone())
+                    .unwrap_or_default();
+
+                self.preview_panel
+                    .update_project_info(crate::components::preview_panel::ProjectInfo {
+                        name: name.clone(),
+                        repos,
+                        worktree_copy_files,
+                        task_stats: stats,
+                    });
+            }
+            None => {
+                self.preview_panel.update_task_info(Vec::new(), None);
+            }
         }
     }
 

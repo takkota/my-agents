@@ -28,33 +28,27 @@ impl AgentMonitor {
         let tasks = self.store.list_all_tasks().unwrap_or_default();
 
         for task in &tasks {
-            if task.agent_cli == AgentCli::None {
+            if task.agent_cli != AgentCli::Claude {
                 continue;
             }
 
-            let event = match task.agent_cli {
-                AgentCli::Claude => self.check_claude_task(&task.id, &task.project_id, &task.status, &task.tmux_session),
-                AgentCli::Codex => self.check_codex_task(&task.id, &task.project_id, &task.status, &task.tmux_session),
-                AgentCli::None => None,
-            };
-
-            if let Some(e) = event {
+            if let Some(e) = self.check_claude_task(&task.id, &task.project_id, &task.status, &task.tmux_session) {
                 events.push(e);
             }
 
-            // Check for PR links discovered by hooks (Claude only)
-            if task.agent_cli == AgentCli::Claude {
-                let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
-                events.extend(link_events);
-            }
+            let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
+            events.extend(link_events);
         }
 
         events
     }
 
     /// Claude Code: check signal file written by hooks.
-    /// - Signal file exists → InReview (agent stopped or idle)
+    /// - Signal file exists + InProgress → InReview (agent stopped or idle)
     /// - Signal file absent + tmux session alive → InProgress (PreToolUse hook cleared it)
+    /// - Todo + tmux session alive → InProgress (stale signal is cleared first)
+    /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
+    /// Note: Todo → InReview is NOT allowed; Todo can only transition to InProgress or Blocked.
     fn check_claude_task(
         &self,
         task_id: &str,
@@ -63,9 +57,34 @@ impl AgentMonitor {
         tmux_session: &Option<String>,
     ) -> Option<MonitorEvent> {
         let signal_path = self.store.task_dir(project_id, task_id).join(SIGNAL_FILE);
+        let session_alive = tmux_session
+            .as_deref()
+            .is_some_and(|s| self.tmux.session_exists(s));
+
+        // Todo requires special handling: session liveness takes priority over
+        // signal file state, because a stale signal may have been left behind.
+        if *current_status == Status::Todo {
+            if session_alive {
+                // Agent is running — clear any stale signal and move to InProgress
+                let _ = std::fs::remove_file(&signal_path);
+                return Some(MonitorEvent::StatusChanged {
+                    task_id: task_id.to_string(),
+                    project_id: project_id.to_string(),
+                    status: Status::InProgress,
+                });
+            } else if tmux_session.is_some() {
+                // Had a session but it's dead — agent crashed or failed to start
+                return Some(MonitorEvent::StatusChanged {
+                    task_id: task_id.to_string(),
+                    project_id: project_id.to_string(),
+                    status: Status::Blocked,
+                });
+            }
+            return None;
+        }
 
         if signal_path.exists() {
-            // Signal file present: agent stopped or idle
+            // Signal file present: agent stopped or idle → InReview (only from InProgress)
             if *current_status == Status::InProgress {
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
@@ -73,20 +92,13 @@ impl AgentMonitor {
                     status: Status::InReview,
                 });
             }
-        } else if *current_status == Status::InReview {
-            // Signal file absent: only transition back to InProgress if the tmux
-            // session is alive (proving the PreToolUse hook cleared the signal,
-            // not that it was never created).
-            let session_alive = tmux_session
-                .as_deref()
-                .is_some_and(|s| self.tmux.session_exists(s));
-            if session_alive {
-                return Some(MonitorEvent::StatusChanged {
-                    task_id: task_id.to_string(),
-                    project_id: project_id.to_string(),
-                    status: Status::InProgress,
-                });
-            }
+        } else if *current_status == Status::InReview && session_alive {
+            // Signal file absent + session alive: PreToolUse hook cleared signal
+            return Some(MonitorEvent::StatusChanged {
+                task_id: task_id.to_string(),
+                project_id: project_id.to_string(),
+                status: Status::InProgress,
+            });
         }
 
         None
@@ -153,37 +165,6 @@ impl AgentMonitor {
             .collect()
     }
 
-    /// Codex: keep existing tmux-based polling.
-    fn check_codex_task(
-        &self,
-        task_id: &str,
-        project_id: &str,
-        current_status: &Status,
-        tmux_session: &Option<String>,
-    ) -> Option<MonitorEvent> {
-        let session_name = tmux_session.as_deref()?;
-        if !self.tmux.session_exists(session_name) {
-            return None;
-        }
-
-        let content = self.tmux.capture_pane(session_name).ok()?;
-        let is_waiting = is_waiting_for_input_codex(&content);
-
-        match (is_waiting, current_status) {
-            (true, Status::InProgress) => Some(MonitorEvent::StatusChanged {
-                task_id: task_id.to_string(),
-                project_id: project_id.to_string(),
-                status: Status::InReview,
-            }),
-            (false, Status::InReview) => Some(MonitorEvent::StatusChanged {
-                task_id: task_id.to_string(),
-                project_id: project_id.to_string(),
-                status: Status::InProgress,
-            }),
-            _ => None,
-        }
-    }
-
 }
 
 /// Validate that a string is a well-formed GitHub PR URL.
@@ -199,18 +180,3 @@ fn is_github_pr_url(url: &str) -> bool {
         && url.starts_with("https://github.com/")
 }
 
-fn is_waiting_for_input_codex(content: &str) -> bool {
-    let last_lines: String = content
-        .lines()
-        .rev()
-        .take(5)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    last_lines.contains("Approve?")
-        || last_lines.contains("(y/n)")
-        || last_lines.contains("> ")
-}
