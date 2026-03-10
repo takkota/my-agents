@@ -1,7 +1,29 @@
 use crate::domain::task::WorktreeInfo;
 use crate::error::AppResult;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+/// Run a git command with stdout/stderr captured (not leaked to the TUI).
+/// Returns the captured stderr on failure for diagnostics.
+fn run_git(upstream_repo: &Path, args: &[&str]) -> AppResult<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(upstream_repo)
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "git {} failed in {:?}: {}",
+            args.first().unwrap_or(&""),
+            upstream_repo,
+            stderr.trim()
+        );
+    }
+    Ok(())
+}
 
 pub struct WorktreeService;
 
@@ -16,62 +38,36 @@ impl WorktreeService {
         target_dir: &Path,
         branch: &str,
     ) -> AppResult<()> {
-        let status = Command::new("git")
-            .args([
-                "-C",
-                &upstream_repo.to_string_lossy(),
+        run_git(
+            upstream_repo,
+            &[
                 "worktree",
                 "add",
                 &target_dir.to_string_lossy(),
                 "-b",
                 branch,
-            ])
-            .status()?;
-        if !status.success() {
-            anyhow::bail!(
-                "Failed to create worktree at {:?} from {:?}",
-                target_dir,
-                upstream_repo
-            );
-        }
-        Ok(())
+            ],
+        )
     }
 
     pub fn remove_worktree(&self, wt: &WorktreeInfo) -> AppResult<()> {
         // First try to remove gracefully
-        let status = Command::new("git")
-            .args([
-                "-C",
-                &wt.upstream_path.to_string_lossy(),
+        let remove_result = run_git(
+            &wt.upstream_path,
+            &[
                 "worktree",
                 "remove",
                 &wt.worktree_path.to_string_lossy(),
                 "--force",
-            ])
-            .status()?;
-        if !status.success() {
+            ],
+        );
+        if remove_result.is_err() {
             // Prune if remove fails
-            Command::new("git")
-                .args([
-                    "-C",
-                    &wt.upstream_path.to_string_lossy(),
-                    "worktree",
-                    "prune",
-                ])
-                .status()?;
+            run_git(&wt.upstream_path, &["worktree", "prune"])?;
         }
 
-        // Delete the branch
-        Command::new("git")
-            .args([
-                "-C",
-                &wt.upstream_path.to_string_lossy(),
-                "branch",
-                "-D",
-                &wt.branch,
-            ])
-            .output()
-            .ok();
+        // Delete the branch (best-effort: ignore failure e.g. branch not found)
+        let _ = run_git(&wt.upstream_path, &["branch", "-D", &wt.branch]);
 
         Ok(())
     }
