@@ -27,6 +27,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc;
 use uuid::Uuid;
 
 /// Result of App::update() that tells the main loop what to do next
@@ -55,6 +56,7 @@ pub struct App {
 
     // Cached
     pub available_repos: Vec<std::path::PathBuf>,
+    repo_scan_rx: Option<mpsc::Receiver<Vec<std::path::PathBuf>>>,
     pub active_sessions: HashSet<String>,
 
     // Monitors
@@ -87,6 +89,13 @@ impl App {
         let agent_monitor = AgentMonitor::new(store.clone(), TmuxService::new());
         let pr_monitor = PrMonitor::new(store.clone());
 
+        // Start background git repo scan immediately
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let repos = git_finder::find_git_repos().unwrap_or_default();
+            let _ = tx.send(repos);
+        });
+
         let mut app = Self {
             running: true,
             config,
@@ -99,6 +108,7 @@ impl App {
             preview_panel: PreviewPanel::new(),
             active_modal: None,
             available_repos: Vec::new(),
+            repo_scan_rx: Some(rx),
             active_sessions: HashSet::new(),
             agent_monitor,
             pr_monitor,
@@ -115,6 +125,24 @@ impl App {
         app.rebuild_tree();
 
         Ok(app)
+    }
+
+    /// Check if the background repo scan has completed and store results.
+    fn try_receive_repos(&mut self) {
+        if let Some(rx) = self.repo_scan_rx.take() {
+            match rx.try_recv() {
+                Ok(repos) => {
+                    self.available_repos = repos;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Not ready yet, put the receiver back
+                    self.repo_scan_rx = Some(rx);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Thread finished without sending (shouldn't happen)
+                }
+            }
+        }
     }
 
     pub fn reload_data(&mut self) -> AppResult<()> {
@@ -243,7 +271,9 @@ impl App {
 
             // Modal openers
             Action::OpenCreateProject => {
+                self.try_receive_repos();
                 if self.available_repos.is_empty() {
+                    // Fallback: scan synchronously if background scan hasn't completed
                     self.available_repos = git_finder::find_git_repos().unwrap_or_default();
                 }
                 self.active_modal = Some(ModalKind::CreateProject(CreateProjectModal::new(
@@ -253,6 +283,7 @@ impl App {
             Action::OpenCreateTask => {
                 if self.projects.is_empty() {
                     // No projects yet - prompt to create one first
+                    self.try_receive_repos();
                     if self.available_repos.is_empty() {
                         self.available_repos = git_finder::find_git_repos().unwrap_or_default();
                     }
