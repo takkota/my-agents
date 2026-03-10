@@ -22,6 +22,7 @@ use crate::services::pr_monitor::PrMonitor;
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
 use crate::storage::FsStore;
+use anyhow::Context;
 use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
@@ -883,13 +884,15 @@ impl App {
     where
         F: FnOnce(&mut Task),
     {
-        let task = self
-            .tasks_by_project
-            .get(project_id)
-            .and_then(|tasks| tasks.iter().find(|t| t.id == task_id))
-            .ok_or_else(|| anyhow::anyhow!("Task {} not found in project {}", task_id, project_id))?;
+        // Read the latest state from disk to avoid last-write-wins when
+        // multiple events target the same task in a single tick.
+        let task_dir = self.store.task_dir(project_id, task_id);
+        let json_path = task_dir.join("task.json");
+        let content = std::fs::read_to_string(&json_path)
+            .with_context(|| format!("reading {:?}", json_path))?;
+        let mut updated: Task = serde_json::from_str(&content)
+            .with_context(|| format!("parsing {:?}", json_path))?;
 
-        let mut updated = task.clone();
         updater(&mut updated);
         self.store.save_task(&updated)?;
         Ok(())

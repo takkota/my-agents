@@ -94,6 +94,7 @@ impl AgentMonitor {
 
     /// Check `.pr_links` file for PR URLs discovered by PostToolUse hook.
     /// Returns events for URLs not already present in the task's links.
+    /// Removes consumed entries from the file to prevent unbounded growth.
     fn check_pr_links(
         &self,
         task_id: &str,
@@ -111,13 +112,39 @@ impl AgentMonitor {
             Err(_) => return Vec::new(),
         };
 
-        content
+        let urls: Vec<String> = content
             .lines()
             .filter(|line| !line.trim().is_empty())
             .map(|line| line.trim().to_string())
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
-            .filter(|url| !existing_links.iter().any(|l| l.url == *url))
+            .filter(|url| is_github_pr_url(url))
+            .collect();
+
+        let new_urls: Vec<String> = urls
+            .iter()
+            .filter(|url| !existing_links.iter().any(|l| l.url == **url))
+            .cloned()
+            .collect();
+
+        // Remove consumed entries: keep only URLs already in task links
+        // (i.e., not new). Any URL written concurrently by the hook will
+        // survive because it won't be in existing_links yet.
+        if !new_urls.is_empty() {
+            let remaining: Vec<&str> = urls
+                .iter()
+                .filter(|url| existing_links.iter().any(|l| l.url == **url))
+                .map(|s| s.as_str())
+                .collect();
+            if remaining.is_empty() {
+                let _ = std::fs::remove_file(&pr_links_path);
+            } else {
+                let _ = std::fs::write(&pr_links_path, remaining.join("\n") + "\n");
+            }
+        }
+
+        new_urls
+            .into_iter()
             .map(|url| MonitorEvent::PrLinkDiscovered {
                 task_id: task_id.to_string(),
                 project_id: project_id.to_string(),
@@ -157,6 +184,19 @@ impl AgentMonitor {
         }
     }
 
+}
+
+/// Validate that a string is a well-formed GitHub PR URL.
+fn is_github_pr_url(url: &str) -> bool {
+    let url = url.trim_end_matches('/');
+    let parts: Vec<&str> = url.split('/').collect();
+    if parts.len() < 5 {
+        return false;
+    }
+    let len = parts.len();
+    parts[len - 2] == "pull"
+        && parts[len - 1].chars().all(|c| c.is_ascii_digit())
+        && url.starts_with("https://github.com/")
 }
 
 fn is_waiting_for_input_codex(content: &str) -> bool {
