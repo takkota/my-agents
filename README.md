@@ -110,6 +110,25 @@ my-agents
                 └── {repo_name}/         # git worktree
 ```
 
+## tmux設定（Shift+Enter対応）
+
+tmux内でClaude Codeを使う場合、Shift+Enterによる改行がデフォルトでは動作しません。tmuxがモディファイアキーのエスケープシーケンスを透過しないためです。
+
+`~/.tmux.conf` に以下を追加してください:
+
+```bash
+set -s extended-keys always
+set -as terminal-features ',*:extkeys'
+```
+
+設定後、tmuxサーバーを再起動する必要があります:
+
+```bash
+tmux kill-server
+```
+
+> **Note**: tmux 3.2以降が必要です。`tmux -V` でバージョンを確認してください。
+
 ## Configuration
 
 `~/.my-agents/config.toml`:
