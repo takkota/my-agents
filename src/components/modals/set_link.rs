@@ -3,7 +3,7 @@ use super::Modal;
 use crate::action::Action;
 use crate::domain::task::TaskLink;
 use crate::error::AppResult;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear};
@@ -54,29 +54,30 @@ impl SetLinkModal {
 
 impl Modal for SetLinkModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.url_input.value.is_empty() {
+                return Ok(None);
+            }
+            let display_name = if self.name_input.value.is_empty() {
+                None
+            } else {
+                Some(self.name_input.value.clone())
+            };
+            return Ok(Some(Action::UpdateTaskLink {
+                task_id: self.task_id.clone(),
+                project_id: self.project_id.clone(),
+                link: TaskLink {
+                    url: self.url_input.value.clone(),
+                    display_name,
+                },
+            }));
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab | KeyCode::BackTab => {
                 self.next_field();
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if self.url_input.value.is_empty() {
-                    return Ok(None);
-                }
-                let display_name = if self.name_input.value.is_empty() {
-                    None
-                } else {
-                    Some(self.name_input.value.clone())
-                };
-                Ok(Some(Action::UpdateTaskLink {
-                    task_id: self.task_id.clone(),
-                    project_id: self.project_id.clone(),
-                    link: TaskLink {
-                        url: self.url_input.value.clone(),
-                        display_name,
-                    },
-                }))
             }
             _ => {
                 let input = match self.current_field {

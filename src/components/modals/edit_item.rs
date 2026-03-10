@@ -1,9 +1,9 @@
-use super::input::{MultiSelectList, SelectList, TextInput};
+use super::input::{MultiSelectList, SelectList, TextArea, TextInput};
 use super::Modal;
 use crate::action::Action;
 use crate::domain::task::Priority;
 use crate::error::AppResult;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear};
@@ -132,6 +132,28 @@ impl EditProjectModal {
 
 impl Modal for EditProjectModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.name_input.value.is_empty() {
+                return Ok(None);
+            }
+            let repos: Vec<(String, PathBuf)> = self
+                .repo_list
+                .selected_values()
+                .into_iter()
+                .map(|p| {
+                    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    (name, p.clone())
+                })
+                .collect();
+
+            return Ok(Some(Action::UpdateProject {
+                project_id: self.project_id.clone(),
+                name: self.name_input.value.clone(),
+                repos,
+                worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
+            }));
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab => {
@@ -141,27 +163,6 @@ impl Modal for EditProjectModal {
             KeyCode::BackTab => {
                 self.switch_field(false);
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if self.name_input.value.is_empty() {
-                    return Ok(None);
-                }
-                let repos: Vec<(String, PathBuf)> = self
-                    .repo_list
-                    .selected_values()
-                    .into_iter()
-                    .map(|p| {
-                        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                        (name, p.clone())
-                    })
-                    .collect();
-
-                Ok(Some(Action::UpdateProject {
-                    project_id: self.project_id.clone(),
-                    name: self.name_input.value.clone(),
-                    repos,
-                    worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
-                }))
             }
             _ => {
                 match self.current_field {
@@ -227,7 +228,7 @@ pub struct EditTaskModal {
     task_id: String,
     project_id: String,
     name_input: TextInput,
-    notes_input: TextInput,
+    notes_input: TextArea,
     priority_list: SelectList<Priority>,
     current_field: TaskField,
 }
@@ -243,7 +244,7 @@ impl EditTaskModal {
         let mut name_input = TextInput::new("Task Name").with_value(&current_name);
         name_input.focused = true;
         let notes_input =
-            TextInput::new("Notes").with_value(current_notes.as_deref().unwrap_or(""));
+            TextArea::new("Notes").with_value(current_notes.as_deref().unwrap_or(""));
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
             .iter()
@@ -294,6 +295,40 @@ impl EditTaskModal {
 
 impl Modal for EditTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // In Notes field, pass Enter (newline) and Up/Down (line nav) to TextArea
+        if matches!(self.current_field, TaskField::Notes) {
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                self.notes_input.insert_newline();
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                self.notes_input.handle_key(key);
+                return Ok(None);
+            }
+        }
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.name_input.value.is_empty() {
+                return Ok(None);
+            }
+            let priority = self
+                .priority_list
+                .selected_value()
+                .copied()
+                .unwrap_or(Priority::P3);
+            let notes = if self.notes_input.value.is_empty() {
+                None
+            } else {
+                Some(self.notes_input.value.clone())
+            };
+            return Ok(Some(Action::UpdateTask {
+                task_id: self.task_id.clone(),
+                project_id: self.project_id.clone(),
+                name: self.name_input.value.clone(),
+                priority,
+                notes,
+            }));
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab => {
@@ -303,28 +338,6 @@ impl Modal for EditTaskModal {
             KeyCode::BackTab => {
                 self.switch_field(false);
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if self.name_input.value.is_empty() {
-                    return Ok(None);
-                }
-                let priority = self
-                    .priority_list
-                    .selected_value()
-                    .copied()
-                    .unwrap_or(Priority::P3);
-                let notes = if self.notes_input.value.is_empty() {
-                    None
-                } else {
-                    Some(self.notes_input.value.clone())
-                };
-                Ok(Some(Action::UpdateTask {
-                    task_id: self.task_id.clone(),
-                    project_id: self.project_id.clone(),
-                    name: self.name_input.value.clone(),
-                    priority,
-                    notes,
-                }))
             }
             _ => {
                 match self.current_field {
@@ -355,7 +368,7 @@ impl Modal for EditTaskModal {
         });
         let chunks = Layout::vertical([
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(5),
             Constraint::Length(7),
         ])
         .split(inner);

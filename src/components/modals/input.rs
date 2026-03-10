@@ -163,6 +163,278 @@ impl TextInput {
     }
 }
 
+/// Multi-line text input field (UTF-8 safe, supports Enter for newlines)
+#[derive(Debug, Clone)]
+pub struct TextArea {
+    pub value: String,
+    /// Cursor position as character index (not byte index) within the entire value
+    pub cursor: usize,
+    pub label: String,
+    pub focused: bool,
+}
+
+impl TextArea {
+    pub fn new(label: &str) -> Self {
+        Self {
+            value: String::new(),
+            cursor: 0,
+            label: label.to_string(),
+            focused: false,
+        }
+    }
+
+    pub fn with_value(mut self, value: &str) -> Self {
+        self.value = value.to_string();
+        self.cursor = value.chars().count();
+        self
+    }
+
+    fn byte_offset(&self) -> usize {
+        self.value
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(i, _)| i)
+            .unwrap_or(self.value.len())
+    }
+
+    pub fn insert_char(&mut self, c: char) {
+        let byte_pos = self.byte_offset();
+        self.value.insert(byte_pos, c);
+        self.cursor += 1;
+    }
+
+    pub fn insert_newline(&mut self) {
+        self.insert_char('\n');
+    }
+
+    /// Insert a string (e.g. from paste), preserving newlines
+    pub fn insert_paste(&mut self, text: &str) {
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        for c in normalized.chars() {
+            self.insert_char(c);
+        }
+    }
+
+    pub fn delete_char(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+            let byte_pos = self.byte_offset();
+            self.value.remove(byte_pos);
+        }
+    }
+
+    pub fn delete_forward_char(&mut self) {
+        if self.cursor < self.value.chars().count() {
+            let byte_pos = self.byte_offset();
+            self.value.remove(byte_pos);
+        }
+    }
+
+    pub fn move_left(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        }
+    }
+
+    pub fn move_right(&mut self) {
+        if self.cursor < self.value.chars().count() {
+            self.cursor += 1;
+        }
+    }
+
+    /// Get (line_index, column_index) of the current cursor position
+    fn cursor_line_col(&self) -> (usize, usize) {
+        let mut line = 0;
+        let mut col = 0;
+        for (i, ch) in self.value.chars().enumerate() {
+            if i == self.cursor {
+                return (line, col);
+            }
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        (line, col)
+    }
+
+    /// Get the lines of the value as (start_char_index, char_count) pairs
+    fn line_ranges(&self) -> Vec<(usize, usize)> {
+        let mut ranges = Vec::new();
+        let mut start = 0;
+        let mut count = 0;
+        for ch in self.value.chars() {
+            if ch == '\n' {
+                ranges.push((start, count));
+                start = start + count + 1;
+                count = 0;
+            } else {
+                count += 1;
+            }
+        }
+        ranges.push((start, count));
+        ranges
+    }
+
+    pub fn move_up(&mut self) {
+        let (line, col) = self.cursor_line_col();
+        if line == 0 {
+            return;
+        }
+        let ranges = self.line_ranges();
+        let prev = &ranges[line - 1];
+        let target_col = col.min(prev.1);
+        self.cursor = prev.0 + target_col;
+    }
+
+    pub fn move_down(&mut self) {
+        let (line, col) = self.cursor_line_col();
+        let ranges = self.line_ranges();
+        if line >= ranges.len() - 1 {
+            return;
+        }
+        let next = &ranges[line + 1];
+        let target_col = col.min(next.1);
+        self.cursor = next.0 + target_col;
+    }
+
+    pub fn move_to_line_start(&mut self) {
+        let (line, _) = self.cursor_line_col();
+        let ranges = self.line_ranges();
+        self.cursor = ranges[line].0;
+    }
+
+    pub fn move_to_line_end(&mut self) {
+        let (line, _) = self.cursor_line_col();
+        let ranges = self.line_ranges();
+        self.cursor = ranges[line].0 + ranges[line].1;
+    }
+
+    pub fn delete_to_line_start(&mut self) {
+        let (line, col) = self.cursor_line_col();
+        if col > 0 {
+            let ranges = self.line_ranges();
+            let line_start_byte: usize = self.value.char_indices()
+                .nth(ranges[line].0)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let cursor_byte = self.byte_offset();
+            self.value.drain(line_start_byte..cursor_byte);
+            self.cursor -= col;
+        }
+    }
+
+    pub fn delete_to_line_end(&mut self) {
+        let cursor_byte = self.byte_offset();
+        // Find the next newline or end of string
+        let end_byte = self.value[cursor_byte..]
+            .find('\n')
+            .map(|pos| cursor_byte + pos)
+            .unwrap_or(self.value.len());
+        self.value.drain(cursor_byte..end_byte);
+    }
+
+    /// Handle key events. Returns true if the key was handled.
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        // Enter inserts newline (form submission is Ctrl+Enter, handled by modal)
+        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.insert_newline();
+            return true;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char('u') => self.delete_to_line_start(),
+                KeyCode::Char('k') => self.delete_to_line_end(),
+                _ => return false,
+            }
+            return true;
+        }
+        match key.code {
+            KeyCode::Char(c) => self.insert_char(c),
+            KeyCode::Backspace => self.delete_char(),
+            KeyCode::Delete => self.delete_forward_char(),
+            KeyCode::Left => self.move_left(),
+            KeyCode::Right => self.move_right(),
+            KeyCode::Up => self.move_up(),
+            KeyCode::Down => self.move_down(),
+            KeyCode::Home => self.move_to_line_start(),
+            KeyCode::End => self.move_to_line_end(),
+            _ => return false,
+        }
+        true
+    }
+
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
+        let border_color = if self.focused {
+            Color::Cyan
+        } else {
+            Color::DarkGray
+        };
+
+        let text_lines: Vec<&str> = self.value.split('\n').collect();
+
+        let display_lines: Vec<Line> = if self.focused {
+            let (cursor_line, cursor_col) = self.cursor_line_col();
+            text_lines
+                .iter()
+                .enumerate()
+                .map(|(line_idx, line_text)| {
+                    if line_idx == cursor_line {
+                        let chars: Vec<char> = line_text.chars().collect();
+                        let before: String = chars[..cursor_col].iter().collect();
+                        if cursor_col < chars.len() {
+                            let cursor_char = chars[cursor_col].to_string();
+                            let after: String = chars[cursor_col + 1..].iter().collect();
+                            Line::from(vec![
+                                Span::raw(before),
+                                Span::styled(
+                                    cursor_char,
+                                    Style::default().bg(Color::White).fg(Color::Black),
+                                ),
+                                Span::raw(after),
+                            ])
+                        } else {
+                            Line::from(vec![
+                                Span::raw(before),
+                                Span::styled(
+                                    " ",
+                                    Style::default().bg(Color::White).fg(Color::Black),
+                                ),
+                            ])
+                        }
+                    } else {
+                        Line::from(line_text.to_string())
+                    }
+                })
+                .collect()
+        } else {
+            text_lines.iter().map(|l| Line::from(l.to_string())).collect()
+        };
+
+        // Scroll to keep cursor visible
+        let visible_height = area.height.saturating_sub(2) as usize;
+        let (cursor_line, _) = self.cursor_line_col();
+        let scroll_offset = if visible_height > 0 && cursor_line >= visible_height {
+            (cursor_line - visible_height + 1) as u16
+        } else {
+            0
+        };
+
+        let hint = if self.focused { " (Ctrl+Enter: submit) " } else { "" };
+        let input = Paragraph::new(display_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" {} {}", self.label, hint))
+                    .border_style(Style::default().fg(border_color)),
+            )
+            .scroll((scroll_offset, 0));
+        frame.render_widget(input, area);
+    }
+}
+
 /// Selection list component
 #[derive(Debug, Clone)]
 pub struct SelectList<T: Clone> {
