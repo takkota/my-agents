@@ -60,10 +60,10 @@ impl Status {
 
     pub fn symbol(&self) -> &'static str {
         match self {
-            Status::Todo => "○",
-            Status::InProgress => "◉",
-            Status::InReview => "◎",
-            Status::Completed => "●",
+            Status::Todo => "☐",
+            Status::InProgress => "▶",
+            Status::InReview => "⏸",
+            Status::Completed => "✓",
             Status::Blocked => "✕",
         }
     }
