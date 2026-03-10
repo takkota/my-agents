@@ -91,22 +91,39 @@ impl EditProjectModal {
         }
     }
 
-    fn next_field(&mut self) {
+    fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
         self.copy_files_input.focused = false;
         self.repo_list.focused = false;
-        self.current_field = match self.current_field {
-            ProjectField::Name => {
-                self.copy_files_input.focused = true;
-                ProjectField::CopyFiles
+        self.current_field = if forward {
+            match self.current_field {
+                ProjectField::Name => {
+                    self.copy_files_input.focused = true;
+                    ProjectField::CopyFiles
+                }
+                ProjectField::CopyFiles => {
+                    self.repo_list.focused = true;
+                    ProjectField::Repos
+                }
+                ProjectField::Repos => {
+                    self.name_input.focused = true;
+                    ProjectField::Name
+                }
             }
-            ProjectField::CopyFiles => {
-                self.repo_list.focused = true;
-                ProjectField::Repos
-            }
-            ProjectField::Repos => {
-                self.name_input.focused = true;
-                ProjectField::Name
+        } else {
+            match self.current_field {
+                ProjectField::Name => {
+                    self.repo_list.focused = true;
+                    ProjectField::Repos
+                }
+                ProjectField::CopyFiles => {
+                    self.name_input.focused = true;
+                    ProjectField::Name
+                }
+                ProjectField::Repos => {
+                    self.copy_files_input.focused = true;
+                    ProjectField::CopyFiles
+                }
             }
         };
     }
@@ -116,8 +133,12 @@ impl Modal for EditProjectModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.next_field();
+            KeyCode::Tab => {
+                self.switch_field(true);
+                Ok(None)
+            }
+            KeyCode::BackTab => {
+                self.switch_field(false);
                 Ok(None)
             }
             KeyCode::Enter => {

@@ -48,24 +48,41 @@ impl CreateProjectModal {
         }
     }
 
-    fn next_field(&mut self) {
+    fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
         self.copy_files_input.focused = false;
         self.repo_list.focused = false;
-        match self.current_field {
-            Field::Name => {
-                self.current_field = Field::CopyFiles;
-                self.copy_files_input.focused = true;
+        self.current_field = if forward {
+            match self.current_field {
+                Field::Name => {
+                    self.copy_files_input.focused = true;
+                    Field::CopyFiles
+                }
+                Field::CopyFiles => {
+                    self.repo_list.focused = true;
+                    Field::Repos
+                }
+                Field::Repos => {
+                    self.name_input.focused = true;
+                    Field::Name
+                }
             }
-            Field::CopyFiles => {
-                self.current_field = Field::Repos;
-                self.repo_list.focused = true;
+        } else {
+            match self.current_field {
+                Field::Name => {
+                    self.repo_list.focused = true;
+                    Field::Repos
+                }
+                Field::CopyFiles => {
+                    self.name_input.focused = true;
+                    Field::Name
+                }
+                Field::Repos => {
+                    self.copy_files_input.focused = true;
+                    Field::CopyFiles
+                }
             }
-            Field::Repos => {
-                self.current_field = Field::Name;
-                self.name_input.focused = true;
-            }
-        }
+        };
     }
 
     fn validate_name(name: &str) -> bool {
@@ -80,8 +97,12 @@ impl Modal for CreateProjectModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.next_field();
+            KeyCode::Tab => {
+                self.switch_field(true);
+                Ok(None)
+            }
+            KeyCode::BackTab => {
+                self.switch_field(false);
                 Ok(None)
             }
             KeyCode::Enter => {

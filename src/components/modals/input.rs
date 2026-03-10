@@ -284,12 +284,29 @@ impl<T: Clone> MultiSelectList<T> {
             }
         }
 
-        let paragraph = Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {} ", self.label))
-                .border_style(Style::default().fg(border_color)),
-        );
+        // Calculate scroll offset to keep cursor visible
+        // Available height = area height - 2 (borders)
+        let visible_height = area.height.saturating_sub(2) as usize;
+        // The cursor line index within `lines` is offset by 1 if filter line is shown
+        let cursor_line = if self.focused {
+            self.cursor + 1 // +1 for the filter line
+        } else {
+            self.cursor
+        };
+        let scroll_offset = if visible_height > 0 && cursor_line >= visible_height {
+            (cursor_line - visible_height + 1) as u16
+        } else {
+            0
+        };
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" {} ", self.label))
+                    .border_style(Style::default().fg(border_color)),
+            )
+            .scroll((scroll_offset, 0));
         frame.render_widget(paragraph, area);
     }
 }
