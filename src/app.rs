@@ -8,7 +8,7 @@ use crate::components::modals::select_link::SelectLinkModal;
 use crate::components::modals::set_link::SetLinkModal;
 use crate::components::modals::set_status::SetStatusModal;
 use crate::components::modals::sort::SortModal;
-use crate::components::modals::{centered_rect, Modal};
+use crate::components::modals::{centered_rect, centered_rect_with_max, Modal};
 use crate::components::preview_panel::PreviewPanel;
 use crate::components::status_bar::StatusBar;
 use crate::components::task_tree::{TaskTree, TreeItem};
@@ -595,8 +595,9 @@ impl App {
                 agent_cli,
                 notes,
                 links,
+                initial_instructions,
             } => {
-                let task_id = self.handle_create_task(project_id.clone(), name, priority, agent_cli, notes, links)?;
+                let task_id = self.handle_create_task(project_id.clone(), name, priority, agent_cli, notes, links, initial_instructions)?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.task_tree.expanded.insert(project_id);
@@ -825,6 +826,7 @@ impl App {
         agent_cli: AgentCli,
         notes: Option<String>,
         links: Vec<crate::domain::task::TaskLink>,
+        initial_instructions: Option<String>,
     ) -> AppResult<String> {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
@@ -878,6 +880,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let bg_task = task.clone();
         let bg_task_dir = task_dir.clone();
+        let bg_initial_instructions = initial_instructions;
 
         std::thread::spawn(move || {
             let repos: Vec<(String, std::path::PathBuf)> = project
@@ -931,6 +934,45 @@ impl App {
                 Ok(()) => None,
                 Err(e) => Some(format!("{}", e)),
             };
+
+            // Send initial instructions to the agent after it's launched
+            if let (Some(ref session), Some(instructions)) = (&tmux_session, bg_initial_instructions) {
+                if updated_task.agent_cli != AgentCli::None {
+                    // Build the prompt: instructions + link URLs
+                    let mut prompt = instructions;
+                    let link_urls: Vec<&str> = updated_task.links.iter().map(|l| l.url.as_str()).collect();
+                    if !link_urls.is_empty() {
+                        prompt.push_str("\n\nLinks:\n");
+                        for url in &link_urls {
+                            prompt.push_str(&format!("- {}\n", url));
+                        }
+                    }
+                    // Wait for agent CLI to become ready (poll capture-pane, up to 30s)
+                    if tmux.wait_for_agent_ready(session, &updated_task.agent_cli, 30) {
+                        let buffer_name = format!("ma-init-{}", updated_task.id);
+                        if let Err(e) = tmux.send_text(session, &prompt, &buffer_name) {
+                            let _ = tx.send(TaskSetupResult {
+                                task_id: updated_task.id,
+                                project_id: updated_task.project_id,
+                                worktrees,
+                                tmux_session,
+                                error: Some(format!("Failed to send initial instructions: {}", e)),
+                            });
+                            return;
+                        }
+                    } else {
+                        // Agent didn't become ready in time — report as warning
+                        let _ = tx.send(TaskSetupResult {
+                            task_id: updated_task.id,
+                            project_id: updated_task.project_id,
+                            worktrees,
+                            tmux_session,
+                            error: Some("Agent did not become ready within 30s; initial instructions were not sent. You can enter them manually.".to_string()),
+                        });
+                        return;
+                    }
+                }
+            }
 
             let _ = tx.send(TaskSetupResult {
                 task_id: updated_task.id,
@@ -1104,7 +1146,7 @@ impl App {
             let modal_area = centered_rect(60, 70, area);
             match modal {
                 ModalKind::CreateProject(m) => m.render(frame, modal_area),
-                ModalKind::CreateTask(m) => m.render(frame, modal_area),
+                ModalKind::CreateTask(m) => m.render(frame, centered_rect_with_max(60, 90, 80, 55, area)),
                 ModalKind::EditItem(m) => m.render(frame, modal_area),
                 ModalKind::SetStatus(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::SetLink(m) => m.render(frame, centered_rect(50, 30, area)),

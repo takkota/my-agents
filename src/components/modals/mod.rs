@@ -32,14 +32,16 @@ pub fn parse_comma_separated(input: &str) -> Vec<String> {
 
 /// Calculate a centered rect for modal overlay
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    centered_rect_with_max(percent_x, percent_y, 80, 30, area)
+}
+
+/// Calculate a centered rect with custom max dimensions
+pub fn centered_rect_with_max(percent_x: u16, percent_y: u16, max_width: u16, max_height: u16, area: Rect) -> Rect {
     let popup_width = area.width * percent_x / 100;
     let popup_height = area.height * percent_y / 100;
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-    Rect::new(
-        area.x + x,
-        area.y + y,
-        popup_width.min(80),
-        popup_height.min(30),
-    )
+    let w = popup_width.min(max_width);
+    let h = popup_height.min(max_height);
+    let x = (area.width.saturating_sub(w)) / 2;
+    let y = (area.height.saturating_sub(h)) / 2;
+    Rect::new(area.x + x, area.y + y, w, h)
 }

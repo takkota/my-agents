@@ -151,6 +151,79 @@ impl TmuxService {
         Ok(())
     }
 
+    /// Send text to a tmux session's first pane using load-buffer + paste-buffer for reliable
+    /// multi-line input, then press Enter to submit.
+    /// Uses a unique buffer name to avoid races with concurrent tasks.
+    /// Targets pane `.0` explicitly to prevent accidental sends to a wrong pane.
+    pub fn send_text(&self, session: &str, text: &str, buffer_name: &str) -> AppResult<()> {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let target = format!("{}:.0", session);
+
+        // Use tmux load-buffer with a unique buffer name to avoid races
+        let mut child = Self::tmux_cmd()
+            .args(["load-buffer", "-b", buffer_name, "-"])
+            .stdin(Stdio::piped())
+            .spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes())?;
+        }
+        let status = child.wait()?;
+        if !status.success() {
+            anyhow::bail!("Failed to load tmux buffer");
+        }
+
+        // Paste the named buffer into the target pane and delete it
+        let output = Self::tmux_cmd()
+            .args(["paste-buffer", "-t", &target, "-b", buffer_name, "-d"])
+            .output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to paste tmux buffer into {}: {}", target, stderr);
+        }
+
+        // Press Enter to submit the input
+        let output = Self::tmux_cmd()
+            .args(["send-keys", "-t", &target, "Enter"])
+            .output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to send Enter to {}: {}", target, stderr);
+        }
+
+        Ok(())
+    }
+
+    /// Wait for agent CLI to be ready by polling capture-pane for a prompt indicator.
+    /// Only checks the last few lines of the pane to avoid false positives from earlier output.
+    /// Returns true if the agent appears ready, false if timed out.
+    pub fn wait_for_agent_ready(&self, session: &str, cli: &AgentCli, timeout_secs: u64) -> bool {
+        let prompt_indicator = match cli {
+            AgentCli::Claude => ">",    // Claude Code shows ">" prompt
+            AgentCli::Codex => ">",     // Codex shows ">" prompt
+            AgentCli::None => return false,
+        };
+        let target = format!("{}:.0", session);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+        while std::time::Instant::now() < deadline {
+            if let Ok(content) = self.capture_pane(&target) {
+                // Only check the last 5 non-empty lines to avoid false positives from earlier output
+                let last_lines: Vec<&str> = content
+                    .lines()
+                    .rev()
+                    .filter(|l| !l.trim().is_empty())
+                    .take(5)
+                    .collect();
+                if last_lines.iter().any(|line| line.trim_end().ends_with(prompt_indicator)) {
+                    return true;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        false
+    }
+
     pub fn session_name(project_id: &str, task_id: &str) -> String {
         format!("ma-{}-{}", project_id, &task_id[..task_id.len().min(6)])
     }

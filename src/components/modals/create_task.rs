@@ -15,7 +15,11 @@ enum Field {
     LinkUrl,
     Priority,
     AgentCli,
+    Instructions,
 }
+
+const INSTRUCTIONS_MIN_LINES: usize = 7;
+const INSTRUCTIONS_MAX_LINES: usize = 20;
 
 const MAX_LINK_LINES: usize = 5;
 
@@ -26,6 +30,7 @@ pub struct CreateTaskModal {
     link_url_input: TextArea,
     priority_list: SelectList<Priority>,
     agent_list: SelectList<AgentCli>,
+    instructions_input: TextArea,
     current_field: Field,
 }
 
@@ -36,6 +41,7 @@ impl CreateTaskModal {
 
         let notes_input = TextArea::new("Notes");
         let link_url_input = TextArea::new("Link URLs (one per line, max 5)");
+        let instructions_input = TextArea::new("Initial Instructions");
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
             .iter()
@@ -61,8 +67,16 @@ impl CreateTaskModal {
             link_url_input,
             priority_list,
             agent_list,
+            instructions_input,
             current_field: Field::Name,
         }
+    }
+
+    fn is_agent_selected(&self) -> bool {
+        self.agent_list
+            .selected_value()
+            .map(|a| *a != AgentCli::None)
+            .unwrap_or(false)
     }
 
     fn switch_field(&mut self, forward: bool) {
@@ -71,10 +85,16 @@ impl CreateTaskModal {
         self.link_url_input.focused = false;
         self.priority_list.focused = false;
         self.agent_list.focused = false;
+        self.instructions_input.focused = false;
 
+        let has_agent = self.is_agent_selected();
+
+        // Tab order: Name → Instructions (if agent) → Notes → LinkUrl → Priority → AgentCli → ...
         self.current_field = if forward {
             match self.current_field {
+                Field::Name if has_agent => Field::Instructions,
                 Field::Name => Field::Notes,
+                Field::Instructions => Field::Notes,
                 Field::Notes => Field::LinkUrl,
                 Field::LinkUrl => Field::Priority,
                 Field::Priority => Field::AgentCli,
@@ -83,6 +103,8 @@ impl CreateTaskModal {
         } else {
             match self.current_field {
                 Field::Name => Field::AgentCli,
+                Field::Instructions => Field::Name,
+                Field::Notes if has_agent => Field::Instructions,
                 Field::Notes => Field::Name,
                 Field::LinkUrl => Field::Notes,
                 Field::Priority => Field::LinkUrl,
@@ -96,6 +118,7 @@ impl CreateTaskModal {
             Field::LinkUrl => self.link_url_input.focused = true,
             Field::Priority => self.priority_list.focused = true,
             Field::AgentCli => self.agent_list.focused = true,
+            Field::Instructions => self.instructions_input.focused = true,
         }
     }
 }
@@ -110,6 +133,17 @@ impl Modal for CreateTaskModal {
             }
             if matches!(key.code, KeyCode::Up | KeyCode::Down) {
                 self.notes_input.handle_key(key);
+                return Ok(None);
+            }
+        }
+        // In Instructions field, pass Enter (newline) and Up/Down (line nav) to TextArea
+        if matches!(self.current_field, Field::Instructions) {
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                self.instructions_input.insert_newline();
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                self.instructions_input.handle_key(key);
                 return Ok(None);
             }
         }
@@ -158,6 +192,11 @@ impl Modal for CreateTaskModal {
                     display_name: None,
                 })
                 .collect();
+            let initial_instructions = if self.instructions_input.value.trim().is_empty() || agent_cli == AgentCli::None {
+                None
+            } else {
+                Some(self.instructions_input.value.clone())
+            };
 
             return Ok(Some(Action::CreateTask {
                 project_id: self.project_id.clone(),
@@ -166,6 +205,7 @@ impl Modal for CreateTaskModal {
                 agent_cli,
                 notes,
                 links,
+                initial_instructions,
             }));
         }
         match key.code {
@@ -183,6 +223,7 @@ impl Modal for CreateTaskModal {
                     Field::Name => { self.name_input.handle_key(key); },
                     Field::Notes => { self.notes_input.handle_key(key); },
                     Field::LinkUrl => { self.link_url_input.handle_key(key); },
+                    Field::Instructions => { self.instructions_input.handle_key(key); },
                     Field::Priority => match key.code {
                         KeyCode::Up | KeyCode::Char('k') => self.priority_list.move_up(),
                         KeyCode::Down | KeyCode::Char('j') => self.priority_list.move_down(),
@@ -217,26 +258,57 @@ impl Modal for CreateTaskModal {
         let link_line_count = self.link_url_input.value.split('\n').count().max(1);
         let link_height = (link_line_count as u16) + 2; // +2 for border
 
-        let chunks = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Length(5),
-            Constraint::Length(link_height),
-            Constraint::Length(7),
-            Constraint::Length(5),
-        ])
-        .split(inner);
+        let has_agent = self.is_agent_selected();
 
-        self.name_input.render(frame, chunks[0]);
-        self.notes_input.render(frame, chunks[1]);
-        self.link_url_input.render(frame, chunks[2]);
-        self.priority_list.render(frame, chunks[3]);
-        self.agent_list.render(frame, chunks[4]);
+        if has_agent {
+            // Instructions field: default 7 lines, grows up to 20 lines, then scrolls.
+            // On small terminals, shrink to fit available space (minimum 3 content lines).
+            let fixed_height: u16 = 3 + 5 + link_height + 7 + 5; // other fields
+            let available_for_instr = inner.height.saturating_sub(fixed_height);
+            let instr_line_count = self.instructions_input.value.split('\n').count().max(1);
+            let ideal_lines = instr_line_count.clamp(INSTRUCTIONS_MIN_LINES, INSTRUCTIONS_MAX_LINES) as u16 + 2;
+            let instr_height = ideal_lines.min(available_for_instr).max(5);
+
+            let chunks = Layout::vertical([
+                Constraint::Length(3),           // Name
+                Constraint::Length(instr_height), // Instructions
+                Constraint::Length(5),           // Notes
+                Constraint::Length(link_height), // LinkUrl
+                Constraint::Length(7),           // Priority
+                Constraint::Length(5),           // AgentCli
+            ])
+            .split(inner);
+
+            self.name_input.render(frame, chunks[0]);
+            self.instructions_input.render(frame, chunks[1]);
+            self.notes_input.render(frame, chunks[2]);
+            self.link_url_input.render(frame, chunks[3]);
+            self.priority_list.render(frame, chunks[4]);
+            self.agent_list.render(frame, chunks[5]);
+        } else {
+            // No agent selected — hide Instructions field
+            let chunks = Layout::vertical([
+                Constraint::Length(3),           // Name
+                Constraint::Length(5),           // Notes
+                Constraint::Length(link_height), // LinkUrl
+                Constraint::Length(7),           // Priority
+                Constraint::Length(5),           // AgentCli
+            ])
+            .split(inner);
+
+            self.name_input.render(frame, chunks[0]);
+            self.notes_input.render(frame, chunks[1]);
+            self.link_url_input.render(frame, chunks[2]);
+            self.priority_list.render(frame, chunks[3]);
+            self.agent_list.render(frame, chunks[4]);
+        }
     }
 
     fn handle_paste(&mut self, text: &str) {
         match self.current_field {
             Field::Name => self.name_input.insert_paste(text),
             Field::Notes => self.notes_input.insert_paste(text),
+            Field::Instructions => self.instructions_input.insert_paste(text),
             Field::LinkUrl => {
                 // Enforce max lines on paste
                 let current_lines = self.link_url_input.value.split('\n').count();
