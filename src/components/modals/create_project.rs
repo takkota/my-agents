@@ -2,7 +2,7 @@ use super::input::{MultiSelectList, TextInput};
 use super::Modal;
 use crate::action::Action;
 use crate::error::AppResult;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear};
@@ -95,6 +95,31 @@ impl CreateProjectModal {
 
 impl Modal for CreateProjectModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if !Self::validate_name(&self.name_input.value) {
+                return Ok(None);
+            }
+            let repos: Vec<(String, PathBuf)> = self
+                .repo_list
+                .selected_values()
+                .into_iter()
+                .map(|p| {
+                    let name = p
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    (name, p.clone())
+                })
+                .collect();
+
+            return Ok(Some(Action::CreateProject {
+                name: self.name_input.value.clone(),
+                repos,
+                worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
+            }));
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab => {
@@ -104,30 +129,6 @@ impl Modal for CreateProjectModal {
             KeyCode::BackTab => {
                 self.switch_field(false);
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if !Self::validate_name(&self.name_input.value) {
-                    return Ok(None);
-                }
-                let repos: Vec<(String, PathBuf)> = self
-                    .repo_list
-                    .selected_values()
-                    .into_iter()
-                    .map(|p| {
-                        let name = p
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        (name, p.clone())
-                    })
-                    .collect();
-
-                Ok(Some(Action::CreateProject {
-                    name: self.name_input.value.clone(),
-                    repos,
-                    worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
-                }))
             }
             _ => {
                 match self.current_field {

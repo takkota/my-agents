@@ -132,6 +132,28 @@ impl EditProjectModal {
 
 impl Modal for EditProjectModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.name_input.value.is_empty() {
+                return Ok(None);
+            }
+            let repos: Vec<(String, PathBuf)> = self
+                .repo_list
+                .selected_values()
+                .into_iter()
+                .map(|p| {
+                    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    (name, p.clone())
+                })
+                .collect();
+
+            return Ok(Some(Action::UpdateProject {
+                project_id: self.project_id.clone(),
+                name: self.name_input.value.clone(),
+                repos,
+                worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
+            }));
+        }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
             KeyCode::Tab => {
@@ -141,27 +163,6 @@ impl Modal for EditProjectModal {
             KeyCode::BackTab => {
                 self.switch_field(false);
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if self.name_input.value.is_empty() {
-                    return Ok(None);
-                }
-                let repos: Vec<(String, PathBuf)> = self
-                    .repo_list
-                    .selected_values()
-                    .into_iter()
-                    .map(|p| {
-                        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                        (name, p.clone())
-                    })
-                    .collect();
-
-                Ok(Some(Action::UpdateProject {
-                    project_id: self.project_id.clone(),
-                    name: self.name_input.value.clone(),
-                    repos,
-                    worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
-                }))
             }
             _ => {
                 match self.current_field {
@@ -294,16 +295,39 @@ impl EditTaskModal {
 
 impl Modal for EditTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
-        // In Notes field, pass Shift+Enter (newline) and Up/Down (line nav) to TextArea
+        // In Notes field, pass Enter (newline) and Up/Down (line nav) to TextArea
         if matches!(self.current_field, TaskField::Notes) {
-            if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT) {
-                self.notes_input.handle_key(key);
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                self.notes_input.insert_newline();
                 return Ok(None);
             }
             if matches!(key.code, KeyCode::Up | KeyCode::Down) {
                 self.notes_input.handle_key(key);
                 return Ok(None);
             }
+        }
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.name_input.value.is_empty() {
+                return Ok(None);
+            }
+            let priority = self
+                .priority_list
+                .selected_value()
+                .copied()
+                .unwrap_or(Priority::P3);
+            let notes = if self.notes_input.value.is_empty() {
+                None
+            } else {
+                Some(self.notes_input.value.clone())
+            };
+            return Ok(Some(Action::UpdateTask {
+                task_id: self.task_id.clone(),
+                project_id: self.project_id.clone(),
+                name: self.name_input.value.clone(),
+                priority,
+                notes,
+            }));
         }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
@@ -314,28 +338,6 @@ impl Modal for EditTaskModal {
             KeyCode::BackTab => {
                 self.switch_field(false);
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if self.name_input.value.is_empty() {
-                    return Ok(None);
-                }
-                let priority = self
-                    .priority_list
-                    .selected_value()
-                    .copied()
-                    .unwrap_or(Priority::P3);
-                let notes = if self.notes_input.value.is_empty() {
-                    None
-                } else {
-                    Some(self.notes_input.value.clone())
-                };
-                Ok(Some(Action::UpdateTask {
-                    task_id: self.task_id.clone(),
-                    project_id: self.project_id.clone(),
-                    name: self.name_input.value.clone(),
-                    priority,
-                    notes,
-                }))
             }
             _ => {
                 match self.current_field {

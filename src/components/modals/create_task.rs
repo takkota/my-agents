@@ -100,16 +100,54 @@ impl CreateTaskModal {
 
 impl Modal for CreateTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
-        // In Notes field, pass Shift+Enter (newline) and Up/Down (line nav) to TextArea
+        // In Notes field, pass Enter (newline) and Up/Down (line nav) to TextArea
         if matches!(self.current_field, Field::Notes) {
-            if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT) {
-                self.notes_input.handle_key(key);
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                self.notes_input.insert_newline();
                 return Ok(None);
             }
             if matches!(key.code, KeyCode::Up | KeyCode::Down) {
                 self.notes_input.handle_key(key);
                 return Ok(None);
             }
+        }
+        // Ctrl+Enter submits the form
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.name_input.value.is_empty() {
+                return Ok(None);
+            }
+            let priority = self
+                .priority_list
+                .selected_value()
+                .copied()
+                .unwrap_or(Priority::P3);
+            let agent_cli = self
+                .agent_list
+                .selected_value()
+                .copied()
+                .unwrap_or(AgentCli::None);
+            let notes = if self.notes_input.value.is_empty() {
+                None
+            } else {
+                Some(self.notes_input.value.clone())
+            };
+            let link = if self.link_url_input.value.is_empty() {
+                None
+            } else {
+                Some(TaskLink {
+                    url: self.link_url_input.value.clone(),
+                    display_name: None,
+                })
+            };
+
+            return Ok(Some(Action::CreateTask {
+                project_id: self.project_id.clone(),
+                name: self.name_input.value.clone(),
+                priority,
+                agent_cli,
+                notes,
+                link,
+            }));
         }
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
@@ -120,43 +158,6 @@ impl Modal for CreateTaskModal {
             KeyCode::BackTab => {
                 self.switch_field(false);
                 Ok(None)
-            }
-            KeyCode::Enter => {
-                if self.name_input.value.is_empty() {
-                    return Ok(None);
-                }
-                let priority = self
-                    .priority_list
-                    .selected_value()
-                    .copied()
-                    .unwrap_or(Priority::P3);
-                let agent_cli = self
-                    .agent_list
-                    .selected_value()
-                    .copied()
-                    .unwrap_or(AgentCli::None);
-                let notes = if self.notes_input.value.is_empty() {
-                    None
-                } else {
-                    Some(self.notes_input.value.clone())
-                };
-                let link = if self.link_url_input.value.is_empty() {
-                    None
-                } else {
-                    Some(TaskLink {
-                        url: self.link_url_input.value.clone(),
-                        display_name: None,
-                    })
-                };
-
-                Ok(Some(Action::CreateTask {
-                    project_id: self.project_id.clone(),
-                    name: self.name_input.value.clone(),
-                    priority,
-                    agent_cli,
-                    notes,
-                    link,
-                }))
             }
             _ => {
                 match self.current_field {

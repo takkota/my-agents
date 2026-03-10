@@ -163,7 +163,7 @@ impl TextInput {
     }
 }
 
-/// Multi-line text input field (UTF-8 safe, supports Shift+Enter for newlines)
+/// Multi-line text input field (UTF-8 safe, supports Enter for newlines)
 #[derive(Debug, Clone)]
 pub struct TextArea {
     pub value: String,
@@ -338,8 +338,8 @@ impl TextArea {
 
     /// Handle key events. Returns true if the key was handled.
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
-        // Shift+Enter inserts newline
-        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT) {
+        // Enter inserts newline (form submission is Ctrl+Enter, handled by modal)
+        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
             self.insert_newline();
             return true;
         }
@@ -422,7 +422,7 @@ impl TextArea {
             0
         };
 
-        let hint = if self.focused { " (Shift+Enter: newline) " } else { "" };
+        let hint = if self.focused { " (Ctrl+Enter: submit) " } else { "" };
         let input = Paragraph::new(display_lines)
             .block(
                 Block::default()
