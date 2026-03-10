@@ -136,8 +136,12 @@ impl PreviewPanel {
                 }
                 info_lines += 1 + notes.lines().count(); // header + notes lines
             }
-            let max_ratio = if self.current_session.is_some() { 3 } else { 1 };
-            let info_height = (info_lines as u16 + 2).min(area.height / max_ratio); // +2 for borders
+            let max_height = if self.current_session.is_some() {
+                area.height / 3
+            } else {
+                area.height * 2 / 3
+            };
+            let info_height = (info_lines as u16 + 2).min(max_height); // +2 for borders
 
             let chunks = Layout::vertical([
                 Constraint::Length(info_height),

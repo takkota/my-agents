@@ -291,7 +291,7 @@ impl FsStore {
                  1. Press 'p' to create a new project\n\
                     - Give it a name and add git repository paths\n\
                  \n\
-                 2. Press 'a' to add a task to the project\n\
+                 2. Press 'n' to add a task to the project\n\
                     - Choose an agent CLI (Claude, Codex, or None)\n\
                     - A tmux session is created automatically\n\
                  \n\
@@ -301,12 +301,11 @@ impl FsStore {
                  \n\
                  Key Bindings:\n\
                  \n\
-                   p - Create project    a - Add task\n\
-                   e - Edit item         d - Delete item\n\
-                   w - Create worktree   l - Add link\n\
-                   n - Edit notes        s - Cycle status\n\
-                   / - Filter tasks      ? - Show help\n\
-                   q - Quit\n\
+                   p - Create project    n - Add task\n\
+                   m - Edit item         d - Delete item\n\
+                   S - Set status        L - Add link\n\
+                   f - Filter tasks      s - Sort tasks\n\
+                   o - Open link         q - Quit\n\
                  \n\
                  Tip: You can delete this quickstart project\n\
                  once you've created your own!"

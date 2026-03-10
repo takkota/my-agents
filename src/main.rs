@@ -20,11 +20,12 @@ fn check_dependencies() {
     let missing: Vec<&str> = ["tmux", "git"]
         .into_iter()
         .filter(|cmd| {
-            Command::new("which")
-                .arg(cmd)
-                .output()
-                .map(|o| !o.status.success())
-                .unwrap_or(true)
+            Command::new(cmd)
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_err()
         })
         .collect();
 
