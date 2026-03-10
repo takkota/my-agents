@@ -14,9 +14,11 @@ use crate::components::status_bar::StatusBar;
 use crate::components::task_tree::{TaskTree, TreeItem};
 use crate::config::Config;
 use crate::domain::project::{Project, RepoRef};
-use crate::domain::task::{AgentCli, Task};
+use crate::domain::task::{AgentCli, Status, Task};
 use crate::error::AppResult;
+use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
+use crate::services::pr_monitor::PrMonitor;
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
 use crate::storage::FsStore;
@@ -55,6 +57,11 @@ pub struct App {
     pub available_repos: Vec<std::path::PathBuf>,
     pub active_sessions: HashSet<String>,
 
+    // Monitors
+    agent_monitor: AgentMonitor,
+    pr_monitor: PrMonitor,
+    tick_count: u64,
+
     // Error display
     pub error_message: Option<String>,
 }
@@ -77,6 +84,8 @@ impl App {
         store.ensure_quickstart()?;
         let tmux = TmuxService::new();
         let worktree_svc = WorktreeService::new();
+        let agent_monitor = AgentMonitor::new(store.clone(), TmuxService::new());
+        let pr_monitor = PrMonitor::new(store.clone());
 
         let mut app = Self {
             running: true,
@@ -91,6 +100,9 @@ impl App {
             active_modal: None,
             available_repos: Vec::new(),
             active_sessions: HashSet::new(),
+            agent_monitor,
+            pr_monitor,
+            tick_count: 0,
             error_message: None,
         };
 
@@ -467,6 +479,20 @@ impl App {
                 project_id,
                 status,
             } => {
+                // When manually setting InReview on a Claude task, create the
+                // signal file so the agent monitor doesn't immediately flip it
+                // back to InProgress.
+                if status == Status::InReview {
+                    if let Some(tasks) = self.tasks_by_project.get(&project_id) {
+                        if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
+                            if task.agent_cli == AgentCli::Claude {
+                                let signal_path = self.store.task_dir(&project_id, &task_id)
+                                    .join(".agent_signal");
+                                let _ = std::fs::write(&signal_path, "manual\n");
+                            }
+                        }
+                    }
+                }
                 self.update_task(&project_id, &task_id, |task| {
                     task.status = status;
                     task.updated_at = Utc::now();
@@ -530,7 +556,13 @@ impl App {
                 self.rebuild_tree();
             }
 
+            Action::AllPrsMerged { .. } => {
+                // Handled inline in Tick via pr_monitor.poll_results()
+            }
+
             Action::Tick => {
+                self.tick_count += 1;
+
                 // Refresh active sessions periodically
                 self.active_sessions.clear();
                 if let Ok(sessions) = self.tmux.list_sessions() {
@@ -555,6 +587,60 @@ impl App {
                 let session_name_owned = session_name.map(|s| s.to_string());
                 self.preview_panel
                     .update_preview(session_name_owned.as_deref(), &self.tmux);
+
+                // Agent monitor: check every monitor_interval_secs
+                // tick_rate_ms=250 → 4 ticks/sec → interval_secs * 4 ticks
+                let agent_interval_ticks =
+                    (self.config.monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
+                let mut data_changed = false;
+
+                if self.tick_count % agent_interval_ticks == 0 {
+                    let agent_events = self.agent_monitor.check_all();
+                    for event in agent_events {
+                        match event {
+                            crate::services::agent_monitor::MonitorEvent::StatusChanged {
+                                task_id,
+                                project_id,
+                                status,
+                            } => {
+                                let _ = self.update_task(&project_id, &task_id, |task| {
+                                    task.status = status;
+                                    task.updated_at = Utc::now();
+                                });
+                                data_changed = true;
+                            }
+                        }
+                    }
+                }
+
+                // PR monitor: kick off background check every pr_monitor_interval_secs
+                let pr_interval_ticks =
+                    (self.config.pr_monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
+                if self.tick_count % pr_interval_ticks == 0 {
+                    self.pr_monitor.start_check();
+                }
+
+                // Poll for completed PR check results (non-blocking)
+                let pr_events = self.pr_monitor.poll_results();
+                for event in pr_events {
+                    match event {
+                        crate::services::pr_monitor::PrMonitorEvent::AllPrsMerged {
+                            task_id,
+                            project_id,
+                        } => {
+                            let _ = self.update_task(&project_id, &task_id, |task| {
+                                task.status = Status::Completed;
+                                task.updated_at = Utc::now();
+                            });
+                            data_changed = true;
+                        }
+                    }
+                }
+
+                if data_changed {
+                    self.reload_data()?;
+                    self.rebuild_tree();
+                }
             }
 
             Action::Noop => {}
