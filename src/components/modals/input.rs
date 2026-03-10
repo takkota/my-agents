@@ -4,6 +4,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Simple single-line text input field (UTF-8 safe, cursor tracks char indices)
 #[derive(Debug, Clone)]
@@ -153,12 +154,23 @@ impl TextInput {
             Line::from(self.value.as_str())
         };
 
-        let input = Paragraph::new(display_value).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {} ", self.label))
-                .border_style(Style::default().fg(border_color)),
-        );
+        // Compute display width of text before cursor for horizontal scroll
+        let visible_width = area.width.saturating_sub(2) as usize;
+        let cursor_display_col = self.value[..self.byte_offset()].width();
+        let h_scroll = if visible_width > 0 && cursor_display_col >= visible_width {
+            (cursor_display_col - visible_width + 1) as u16
+        } else {
+            0
+        };
+
+        let input = Paragraph::new(display_value)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" {} ", self.label))
+                    .border_style(Style::default().fg(border_color)),
+            )
+            .scroll((0, h_scroll));
         frame.render_widget(input, area);
     }
 }
@@ -242,87 +254,110 @@ impl TextArea {
         }
     }
 
-    /// Get (line_index, column_index) of the current cursor position
-    fn cursor_line_col(&self) -> (usize, usize) {
+    /// Get (line_index, display_column_width, char_column_index) of the current cursor position.
+    /// The display column is measured in display width (CJK characters count as 2).
+    /// The char column is the character offset within the current line.
+    fn cursor_line_col(&self) -> (usize, usize, usize) {
         let mut line = 0;
-        let mut col = 0;
+        let mut display_col = 0;
+        let mut char_col = 0;
         for (i, ch) in self.value.chars().enumerate() {
             if i == self.cursor {
-                return (line, col);
+                return (line, display_col, char_col);
             }
             if ch == '\n' {
                 line += 1;
-                col = 0;
+                display_col = 0;
+                char_col = 0;
             } else {
-                col += 1;
+                display_col += ch.width().unwrap_or(0);
+                char_col += 1;
             }
         }
-        (line, col)
+        (line, display_col, char_col)
     }
 
-    /// Get the lines of the value as (start_char_index, char_count) pairs
-    fn line_ranges(&self) -> Vec<(usize, usize)> {
+    /// Get the lines of the value as (start_char_index, char_count, display_width) tuples
+    fn line_ranges(&self) -> Vec<(usize, usize, usize)> {
         let mut ranges = Vec::new();
         let mut start = 0;
         let mut count = 0;
+        let mut width = 0;
         for ch in self.value.chars() {
             if ch == '\n' {
-                ranges.push((start, count));
+                ranges.push((start, count, width));
                 start = start + count + 1;
                 count = 0;
+                width = 0;
             } else {
                 count += 1;
+                width += ch.width().unwrap_or(0);
             }
         }
-        ranges.push((start, count));
+        ranges.push((start, count, width));
         ranges
     }
 
+    /// Find the char index within a line that corresponds to a target display column.
+    /// `line_start` is the char index of the first character of the line.
+    fn char_index_at_display_col(&self, line_start: usize, line_char_count: usize, target_display_col: usize) -> usize {
+        let mut display_col = 0;
+        for (i, ch) in self.value.chars().skip(line_start).take(line_char_count).enumerate() {
+            let w = ch.width().unwrap_or(0);
+            if display_col + w > target_display_col {
+                return line_start + i;
+            }
+            display_col += w;
+        }
+        line_start + line_char_count
+    }
+
     pub fn move_up(&mut self) {
-        let (line, col) = self.cursor_line_col();
+        let (line, col, _) = self.cursor_line_col();
         if line == 0 {
             return;
         }
         let ranges = self.line_ranges();
         let prev = &ranges[line - 1];
-        let target_col = col.min(prev.1);
-        self.cursor = prev.0 + target_col;
+        let target_display_col = col.min(prev.2);
+        self.cursor = self.char_index_at_display_col(prev.0, prev.1, target_display_col);
     }
 
     pub fn move_down(&mut self) {
-        let (line, col) = self.cursor_line_col();
+        let (line, col, _) = self.cursor_line_col();
         let ranges = self.line_ranges();
         if line >= ranges.len() - 1 {
             return;
         }
         let next = &ranges[line + 1];
-        let target_col = col.min(next.1);
-        self.cursor = next.0 + target_col;
+        let target_display_col = col.min(next.2);
+        self.cursor = self.char_index_at_display_col(next.0, next.1, target_display_col);
     }
 
     pub fn move_to_line_start(&mut self) {
-        let (line, _) = self.cursor_line_col();
+        let (line, _, _) = self.cursor_line_col();
         let ranges = self.line_ranges();
         self.cursor = ranges[line].0;
     }
 
     pub fn move_to_line_end(&mut self) {
-        let (line, _) = self.cursor_line_col();
+        let (line, _, _) = self.cursor_line_col();
         let ranges = self.line_ranges();
         self.cursor = ranges[line].0 + ranges[line].1;
     }
 
     pub fn delete_to_line_start(&mut self) {
-        let (line, col) = self.cursor_line_col();
+        let (line, col, _) = self.cursor_line_col();
         if col > 0 {
             let ranges = self.line_ranges();
+            let line_start_char = ranges[line].0;
             let line_start_byte: usize = self.value.char_indices()
-                .nth(ranges[line].0)
+                .nth(line_start_char)
                 .map(|(i, _)| i)
                 .unwrap_or(0);
             let cursor_byte = self.byte_offset();
             self.value.drain(line_start_byte..cursor_byte);
-            self.cursor -= col;
+            self.cursor = line_start_char;
         }
     }
 
@@ -392,17 +427,17 @@ impl TextArea {
         let text_lines: Vec<&str> = self.value.split('\n').collect();
 
         let display_lines: Vec<Line> = if self.focused {
-            let (cursor_line, cursor_col) = self.cursor_line_col();
+            let (cursor_line, _cursor_display_col, cursor_char_col) = self.cursor_line_col();
             text_lines
                 .iter()
                 .enumerate()
                 .map(|(line_idx, line_text)| {
                     if line_idx == cursor_line {
                         let chars: Vec<char> = line_text.chars().collect();
-                        let before: String = chars[..cursor_col].iter().collect();
-                        if cursor_col < chars.len() {
-                            let cursor_char = chars[cursor_col].to_string();
-                            let after: String = chars[cursor_col + 1..].iter().collect();
+                        let before: String = chars[..cursor_char_col].iter().collect();
+                        if cursor_char_col < chars.len() {
+                            let cursor_char = chars[cursor_char_col].to_string();
+                            let after: String = chars[cursor_char_col + 1..].iter().collect();
                             Line::from(vec![
                                 Span::raw(before),
                                 Span::styled(
@@ -432,7 +467,7 @@ impl TextArea {
         // Scroll to keep cursor visible
         let visible_height = area.height.saturating_sub(2) as usize;
         let visible_width = area.width.saturating_sub(2) as usize;
-        let (cursor_line, cursor_col) = self.cursor_line_col();
+        let (cursor_line, cursor_col, _) = self.cursor_line_col();
         let v_scroll = if visible_height > 0 && cursor_line >= visible_height {
             (cursor_line - visible_height + 1) as u16
         } else {
