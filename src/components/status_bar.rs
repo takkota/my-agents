@@ -48,7 +48,7 @@ impl StatusBar {
 
     pub fn render_modal(frame: &mut Frame, area: Rect) {
         let hints = Line::from(vec![
-            Span::styled(" Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" Esc/Ctrl+C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(" Cancel ", Style::default().fg(Color::Gray)),
             Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(" Confirm ", Style::default().fg(Color::Gray)),

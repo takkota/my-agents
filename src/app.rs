@@ -188,6 +188,12 @@ impl App {
     pub fn handle_key_event(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         // Modal takes priority
         if let Some(modal) = &mut self.active_modal {
+            // Ctrl+C acts as Escape to close modals
+            if key.code == KeyCode::Char('c')
+                && key.modifiers == KeyModifiers::CONTROL
+            {
+                return Ok(Some(Action::CloseModal));
+            }
             return match modal {
                 ModalKind::CreateProject(m) => m.handle_key(key),
                 ModalKind::CreateTask(m) => m.handle_key(key),
