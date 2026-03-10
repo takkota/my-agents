@@ -351,11 +351,12 @@ impl App {
                             id,
                             project_id,
                             name,
+                            priority,
                             notes,
                             ..
                         } => {
                             self.active_modal = Some(ModalKind::EditItem(EditItemModal::Task(
-                                EditTaskModal::new(id, project_id, name, notes),
+                                EditTaskModal::new(id, project_id, name, priority, notes),
                             )));
                         }
                     }
@@ -507,10 +508,12 @@ impl App {
                 task_id,
                 project_id,
                 name,
+                priority,
                 notes,
             } => {
                 self.update_task(&project_id, &task_id, |task| {
                     task.name = name;
+                    task.priority = priority;
                     task.notes = notes;
                     task.updated_at = Utc::now();
                 })?;

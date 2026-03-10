@@ -1,6 +1,7 @@
-use super::input::{MultiSelectList, TextInput};
+use super::input::{MultiSelectList, SelectList, TextInput};
 use super::Modal;
 use crate::action::Action;
+use crate::domain::task::Priority;
 use crate::error::AppResult;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -227,10 +228,11 @@ impl Modal for EditProjectModal {
     }
 }
 
-// Edit Task (name + notes)
+// Edit Task (name + priority + notes)
 enum TaskField {
     Name,
     Notes,
+    Priority,
 }
 
 pub struct EditTaskModal {
@@ -238,6 +240,7 @@ pub struct EditTaskModal {
     project_id: String,
     name_input: TextInput,
     notes_input: TextInput,
+    priority_list: SelectList<Priority>,
     current_field: TaskField,
 }
 
@@ -246,34 +249,58 @@ impl EditTaskModal {
         task_id: String,
         project_id: String,
         current_name: String,
+        current_priority: Priority,
         current_notes: Option<String>,
     ) -> Self {
         let mut name_input = TextInput::new("Task Name").with_value(&current_name);
         name_input.focused = true;
         let notes_input =
             TextInput::new("Notes").with_value(current_notes.as_deref().unwrap_or(""));
+
+        let priority_items: Vec<(String, Priority)> = Priority::all()
+            .iter()
+            .map(|p| (p.to_string(), *p))
+            .collect();
+        let mut priority_list = SelectList::new("Priority", priority_items);
+        priority_list.selected = Priority::all()
+            .iter()
+            .position(|p| *p == current_priority)
+            .unwrap_or(2);
+
         Self {
             task_id,
             project_id,
             name_input,
             notes_input,
+            priority_list,
             current_field: TaskField::Name,
         }
     }
 
-    fn next_field(&mut self) {
+    fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
         self.notes_input.focused = false;
-        self.current_field = match self.current_field {
-            TaskField::Name => {
-                self.notes_input.focused = true;
-                TaskField::Notes
+        self.priority_list.focused = false;
+
+        self.current_field = if forward {
+            match self.current_field {
+                TaskField::Name => TaskField::Notes,
+                TaskField::Notes => TaskField::Priority,
+                TaskField::Priority => TaskField::Name,
             }
-            TaskField::Notes => {
-                self.name_input.focused = true;
-                TaskField::Name
+        } else {
+            match self.current_field {
+                TaskField::Name => TaskField::Priority,
+                TaskField::Notes => TaskField::Name,
+                TaskField::Priority => TaskField::Notes,
             }
         };
+
+        match self.current_field {
+            TaskField::Name => self.name_input.focused = true,
+            TaskField::Notes => self.notes_input.focused = true,
+            TaskField::Priority => self.priority_list.focused = true,
+        }
     }
 }
 
@@ -281,14 +308,23 @@ impl Modal for EditTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.next_field();
+            KeyCode::Tab => {
+                self.switch_field(true);
+                Ok(None)
+            }
+            KeyCode::BackTab => {
+                self.switch_field(false);
                 Ok(None)
             }
             KeyCode::Enter => {
                 if self.name_input.value.is_empty() {
                     return Ok(None);
                 }
+                let priority = self
+                    .priority_list
+                    .selected_value()
+                    .copied()
+                    .unwrap_or(Priority::P3);
                 let notes = if self.notes_input.value.is_empty() {
                     None
                 } else {
@@ -298,6 +334,7 @@ impl Modal for EditTaskModal {
                     task_id: self.task_id.clone(),
                     project_id: self.project_id.clone(),
                     name: self.name_input.value.clone(),
+                    priority,
                     notes,
                 }))
             }
@@ -315,6 +352,11 @@ impl Modal for EditTaskModal {
                         KeyCode::Backspace => self.notes_input.delete_char(),
                         KeyCode::Left => self.notes_input.move_left(),
                         KeyCode::Right => self.notes_input.move_right(),
+                        _ => {}
+                    },
+                    TaskField::Priority => match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => self.priority_list.move_up(),
+                        KeyCode::Down | KeyCode::Char('j') => self.priority_list.move_down(),
                         _ => {}
                     },
                 }
@@ -335,16 +377,23 @@ impl Modal for EditTaskModal {
             vertical: 1,
             horizontal: 1,
         });
-        let chunks = Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).split(inner);
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(7),
+        ])
+        .split(inner);
 
         self.name_input.render(frame, chunks[0]);
         self.notes_input.render(frame, chunks[1]);
+        self.priority_list.render(frame, chunks[2]);
     }
 
     fn handle_paste(&mut self, text: &str) {
         match self.current_field {
             TaskField::Name => self.name_input.insert_paste(text),
             TaskField::Notes => self.notes_input.insert_paste(text),
+            TaskField::Priority => {}
         }
     }
 }

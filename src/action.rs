@@ -49,6 +49,7 @@ pub enum Action {
         task_id: String,
         project_id: String,
         name: String,
+        priority: Priority,
         notes: Option<String>,
     },
     UpdateTaskStatus {
