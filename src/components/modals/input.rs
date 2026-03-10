@@ -46,10 +46,7 @@ impl TextInput {
 
     /// Insert a string (e.g. from paste), converting newlines to spaces
     pub fn insert_paste(&mut self, text: &str) {
-        let sanitized: String = text.chars().map(|c| match c {
-            '\n' | '\r' => ' ',
-            _ => c,
-        }).collect();
+        let sanitized = text.replace("\r\n", " ").replace(['\n', '\r'], " ");
         for c in sanitized.chars() {
             self.insert_char(c);
         }
