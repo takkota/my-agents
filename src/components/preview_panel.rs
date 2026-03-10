@@ -88,7 +88,7 @@ impl PreviewPanel {
         !self.task_links.is_empty() || self.task_notes.is_some() || self.task_initial_instructions.is_some()
     }
 
-    fn render_task_info(&self, frame: &mut Frame, area: Rect) {
+    fn build_task_info_lines(&self) -> Vec<Line<'_>> {
         let mut lines: Vec<Line> = Vec::new();
 
         // Links section
@@ -156,16 +156,22 @@ impl PreviewPanel {
             }
         }
 
-        let paragraph = Paragraph::new(lines)
+        lines
+    }
+
+    fn build_task_info_paragraph(&self) -> Paragraph<'_> {
+        Paragraph::new(self.build_task_info_lines())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Task Info ")
                     .border_style(Style::default().fg(Color::Cyan)),
             )
-            .wrap(Wrap { trim: false });
+            .wrap(Wrap { trim: false })
+    }
 
-        frame.render_widget(paragraph, area);
+    fn render_task_info(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(self.build_task_info_paragraph(), area);
     }
 
     fn render_project_info(&self, frame: &mut Frame, area: Rect) {
@@ -292,25 +298,6 @@ impl PreviewPanel {
         frame.render_widget(paragraph, area);
     }
 
-    /// Count the number of visual lines a text will occupy when wrapped to the given width.
-    /// Each raw line is counted as ceil(line_display_width / wrap_width), minimum 1.
-    fn count_wrapped_lines(text: &str, indent: usize, wrap_width: usize) -> usize {
-        if wrap_width == 0 {
-            return text.lines().count().max(1);
-        }
-        let effective_width = wrap_width.saturating_sub(indent).max(1);
-        text.lines()
-            .map(|line| {
-                let char_count = line.chars().count();
-                if char_count == 0 {
-                    1
-                } else {
-                    (char_count + effective_width - 1) / effective_width
-                }
-            })
-            .sum()
-    }
-
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         if self.project_info.is_some() {
             self.render_project_info(frame, area);
@@ -318,37 +305,15 @@ impl PreviewPanel {
         }
 
         if self.has_task_info() {
-            // Calculate info panel height accounting for line wrapping
-            // Available width inside borders (subtract 2 for left+right border)
-            let wrap_width = area.width.saturating_sub(2) as usize;
-            let mut info_lines: usize = 0;
-            if !self.task_links.is_empty() {
-                info_lines += 1; // header
-                for link in &self.task_links {
-                    let display = link.display();
-                    let link_text_len = 2 + display.len() + 1 + 1 + link.url.len();
-                    let effective_width = wrap_width.max(1);
-                    info_lines += (link_text_len + effective_width - 1) / effective_width;
-                }
-            }
-            if let Some(notes) = &self.task_notes {
-                if info_lines > 0 {
-                    info_lines += 1; // separator
-                }
-                info_lines += 1 + Self::count_wrapped_lines(notes, 2, wrap_width); // header + wrapped notes
-            }
-            if let Some(instructions) = &self.task_initial_instructions {
-                if info_lines > 0 {
-                    info_lines += 1; // separator
-                }
-                info_lines += 1 + Self::count_wrapped_lines(instructions, 2, wrap_width); // header + wrapped instructions
-            }
+            // Use Paragraph::line_count() to get accurate height including word-wrapping
+            let paragraph = self.build_task_info_paragraph();
+            let info_lines = paragraph.line_count(area.width) as u16;
             let max_height = if self.current_session.is_some() {
                 area.height / 3
             } else {
                 area.height * 2 / 3
             };
-            let info_height = (info_lines as u16 + 2).min(max_height); // +2 for borders
+            let info_height = info_lines.min(max_height);
 
             let chunks = Layout::vertical([
                 Constraint::Length(info_height),
