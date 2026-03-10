@@ -15,7 +15,7 @@ pub enum Event {
 pub struct EventHandler {
     rx: mpsc::UnboundedReceiver<Event>,
     _tx: mpsc::UnboundedSender<Event>,
-    _task: tokio::task::JoinHandle<()>,
+    task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl EventHandler {
@@ -36,11 +36,15 @@ impl EventHandler {
                         match maybe_event {
                             Some(Ok(crossterm::event::Event::Key(key))) => {
                                 if key.kind == KeyEventKind::Press {
-                                    let _ = event_tx.send(Event::Key(key));
+                                    if event_tx.send(Event::Key(key)).is_err() {
+                                        break;
+                                    }
                                 }
                             }
                             Some(Ok(crossterm::event::Event::Paste(text))) => {
-                                let _ = event_tx.send(Event::Paste(text));
+                                if event_tx.send(Event::Paste(text)).is_err() {
+                                    break;
+                                }
                             }
                             Some(Err(_)) => break,
                             None => break,
@@ -48,7 +52,9 @@ impl EventHandler {
                         }
                     }
                     _ = tick_delay => {
-                        let _ = event_tx.send(Event::Tick);
+                        if event_tx.send(Event::Tick).is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -57,7 +63,7 @@ impl EventHandler {
         Self {
             rx,
             _tx: tx,
-            _task: task,
+            task: Some(task),
         }
     }
 
@@ -66,5 +72,23 @@ impl EventHandler {
             .recv()
             .await
             .ok_or_else(|| anyhow::anyhow!("Event channel closed"))
+    }
+
+    /// Stop the event handler by aborting the background task and waiting
+    /// for it to finish. Must be called before operations that need
+    /// exclusive access to stdin (e.g. tmux attach).
+    pub async fn stop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for EventHandler {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
