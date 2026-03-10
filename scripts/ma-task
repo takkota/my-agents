@@ -322,6 +322,15 @@ cmd_status() {
 
     local json
     json="$(read_task "$project_id" "$task_id")"
+
+    # Skip write if status is already the same
+    local current_status
+    current_status="$(echo "$json" | jq -r '.status')"
+    if [ "$current_status" = "$new_status" ]; then
+        echo "$json"
+        return 0
+    fi
+
     json="$(echo "$json" | jq --arg s "$new_status" --arg now "$(now_iso)" '.status = $s | .updated_at = $now')"
     write_task "$project_id" "$task_id" "$json"
     echo "$json"
