@@ -1,4 +1,4 @@
-use crate::domain::task::{AgentCli, Status};
+use crate::domain::task::{AgentCli, Status, TaskLink};
 use crate::services::tmux::TmuxService;
 use crate::storage::FsStore;
 
@@ -9,10 +9,14 @@ pub struct AgentMonitor {
 
 pub enum MonitorEvent {
     StatusChanged { task_id: String, project_id: String, status: Status },
+    PrLinkDiscovered { task_id: String, project_id: String, url: String },
 }
 
 /// Signal file name written by Claude Code hooks in the task directory.
 const SIGNAL_FILE: &str = ".agent_signal";
+
+/// File where PostToolUse hook appends discovered PR URLs.
+const PR_LINKS_FILE: &str = ".pr_links";
 
 impl AgentMonitor {
     pub fn new(store: FsStore, tmux: TmuxService) -> Self {
@@ -36,6 +40,12 @@ impl AgentMonitor {
 
             if let Some(e) = event {
                 events.push(e);
+            }
+
+            // Check for PR links discovered by hooks (Claude only)
+            if task.agent_cli == AgentCli::Claude {
+                let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
+                events.extend(link_events);
             }
         }
 
@@ -80,6 +90,40 @@ impl AgentMonitor {
         }
 
         None
+    }
+
+    /// Check `.pr_links` file for PR URLs discovered by PostToolUse hook.
+    /// Returns events for URLs not already present in the task's links.
+    fn check_pr_links(
+        &self,
+        task_id: &str,
+        project_id: &str,
+        existing_links: &[TaskLink],
+    ) -> Vec<MonitorEvent> {
+        let pr_links_path = self.store.task_dir(project_id, task_id).join(PR_LINKS_FILE);
+
+        if !pr_links_path.exists() {
+            return Vec::new();
+        }
+
+        let content = match std::fs::read_to_string(&pr_links_path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.trim().to_string())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .filter(|url| !existing_links.iter().any(|l| l.url == *url))
+            .map(|url| MonitorEvent::PrLinkDiscovered {
+                task_id: task_id.to_string(),
+                project_id: project_id.to_string(),
+                url,
+            })
+            .collect()
     }
 
     /// Codex: keep existing tmux-based polling.

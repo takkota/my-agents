@@ -1,7 +1,7 @@
 use super::input::{SelectList, TextInput};
 use super::Modal;
 use crate::action::Action;
-use crate::domain::task::{AgentCli, Priority};
+use crate::domain::task::{AgentCli, Priority, TaskLink};
 use crate::error::AppResult;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -12,6 +12,7 @@ use ratatui::Frame;
 enum Field {
     Name,
     Notes,
+    LinkUrl,
     Priority,
     AgentCli,
 }
@@ -20,6 +21,7 @@ pub struct CreateTaskModal {
     project_id: String,
     name_input: TextInput,
     notes_input: TextInput,
+    link_url_input: TextInput,
     priority_list: SelectList<Priority>,
     agent_list: SelectList<AgentCli>,
     current_field: Field,
@@ -31,6 +33,7 @@ impl CreateTaskModal {
         name_input.focused = true;
 
         let notes_input = TextInput::new("Notes");
+        let link_url_input = TextInput::new("Link URL");
 
         let priority_items: Vec<(String, Priority)> = Priority::all()
             .iter()
@@ -53,6 +56,7 @@ impl CreateTaskModal {
             project_id,
             name_input,
             notes_input,
+            link_url_input,
             priority_list,
             agent_list,
             current_field: Field::Name,
@@ -62,13 +66,15 @@ impl CreateTaskModal {
     fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
         self.notes_input.focused = false;
+        self.link_url_input.focused = false;
         self.priority_list.focused = false;
         self.agent_list.focused = false;
 
         self.current_field = if forward {
             match self.current_field {
                 Field::Name => Field::Notes,
-                Field::Notes => Field::Priority,
+                Field::Notes => Field::LinkUrl,
+                Field::LinkUrl => Field::Priority,
                 Field::Priority => Field::AgentCli,
                 Field::AgentCli => Field::Name,
             }
@@ -76,7 +82,8 @@ impl CreateTaskModal {
             match self.current_field {
                 Field::Name => Field::AgentCli,
                 Field::Notes => Field::Name,
-                Field::Priority => Field::Notes,
+                Field::LinkUrl => Field::Notes,
+                Field::Priority => Field::LinkUrl,
                 Field::AgentCli => Field::Priority,
             }
         };
@@ -84,6 +91,7 @@ impl CreateTaskModal {
         match self.current_field {
             Field::Name => self.name_input.focused = true,
             Field::Notes => self.notes_input.focused = true,
+            Field::LinkUrl => self.link_url_input.focused = true,
             Field::Priority => self.priority_list.focused = true,
             Field::AgentCli => self.agent_list.focused = true,
         }
@@ -121,6 +129,14 @@ impl Modal for CreateTaskModal {
                 } else {
                     Some(self.notes_input.value.clone())
                 };
+                let link = if self.link_url_input.value.is_empty() {
+                    None
+                } else {
+                    Some(TaskLink {
+                        url: self.link_url_input.value.clone(),
+                        display_name: None,
+                    })
+                };
 
                 Ok(Some(Action::CreateTask {
                     project_id: self.project_id.clone(),
@@ -128,6 +144,7 @@ impl Modal for CreateTaskModal {
                     priority,
                     agent_cli,
                     notes,
+                    link,
                 }))
             }
             _ => {
@@ -148,6 +165,15 @@ impl Modal for CreateTaskModal {
                         KeyCode::Right => self.notes_input.move_right(),
                         KeyCode::Home => self.notes_input.move_to_start(),
                         KeyCode::End => self.notes_input.move_to_end(),
+                        _ => {}
+                    },
+                    Field::LinkUrl => match key.code {
+                        KeyCode::Char(c) => self.link_url_input.insert_char(c),
+                        KeyCode::Backspace => self.link_url_input.delete_char(),
+                        KeyCode::Left => self.link_url_input.move_left(),
+                        KeyCode::Right => self.link_url_input.move_right(),
+                        KeyCode::Home => self.link_url_input.move_to_start(),
+                        KeyCode::End => self.link_url_input.move_to_end(),
                         _ => {}
                     },
                     Field::Priority => match key.code {
@@ -183,6 +209,7 @@ impl Modal for CreateTaskModal {
         let chunks = Layout::vertical([
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Length(7),
             Constraint::Length(5),
         ])
@@ -190,14 +217,16 @@ impl Modal for CreateTaskModal {
 
         self.name_input.render(frame, chunks[0]);
         self.notes_input.render(frame, chunks[1]);
-        self.priority_list.render(frame, chunks[2]);
-        self.agent_list.render(frame, chunks[3]);
+        self.link_url_input.render(frame, chunks[2]);
+        self.priority_list.render(frame, chunks[3]);
+        self.agent_list.render(frame, chunks[4]);
     }
 
     fn handle_paste(&mut self, text: &str) {
         match self.current_field {
             Field::Name => self.name_input.insert_paste(text),
             Field::Notes => self.notes_input.insert_paste(text),
+            Field::LinkUrl => self.link_url_input.insert_paste(text),
             _ => {}
         }
     }

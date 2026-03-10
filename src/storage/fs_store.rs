@@ -248,6 +248,9 @@ impl FsStore {
         // - Notification hook: write "idle" to signal file on any notification
         //   (covers idle_prompt, permission_prompt, etc.)
         // - PreToolUse hook: clear signal file when agent starts working
+        let pr_links_path = task_dir.join(".pr_links");
+        let pr_links_path_str = pr_links_path.to_string_lossy();
+
         let settings = serde_json::json!({
             "hooks": {
                 "Stop": [
@@ -287,6 +290,20 @@ impl FsStore {
                                 "command": format!(
                                     "rm -f {}",
                                     shell_escape(&signal_path_str)
+                                )
+                            }
+                        ]
+                    }
+                ],
+                "PostToolUse": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' >> {} || true",
+                                    shell_escape(&pr_links_path_str)
                                 )
                             }
                         ]
