@@ -103,12 +103,25 @@ impl PreviewPanel {
         frame.render_widget(paragraph, area);
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    fn render_session(&self, frame: &mut Frame, area: Rect) {
         let title = match &self.current_session {
             Some(name) => format!(" Session: {} ", name),
             None => " Preview ".to_string(),
         };
+        let text = Text::from(self.content.as_str());
+        let paragraph = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            )
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(Color::Gray));
+        frame.render_widget(paragraph, area);
+    }
 
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
         if self.has_task_info() {
             // Calculate info panel height
             let mut info_lines: usize = 0;
@@ -130,32 +143,9 @@ impl PreviewPanel {
             .split(area);
 
             self.render_task_info(frame, chunks[0]);
-
-            let text = Text::from(self.content.as_str());
-            let paragraph = Paragraph::new(text)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(title)
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                )
-                .wrap(Wrap { trim: false })
-                .style(Style::default().fg(Color::Gray));
-
-            frame.render_widget(paragraph, chunks[1]);
+            self.render_session(frame, chunks[1]);
         } else {
-            let text = Text::from(self.content.as_str());
-            let paragraph = Paragraph::new(text)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(title)
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                )
-                .wrap(Wrap { trim: false })
-                .style(Style::default().fg(Color::Gray));
-
-            frame.render_widget(paragraph, area);
+            self.render_session(frame, area);
         }
     }
 }

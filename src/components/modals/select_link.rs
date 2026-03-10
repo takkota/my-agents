@@ -5,8 +5,7 @@ use crate::domain::task::TaskLink;
 use crate::error::AppResult;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, Clear};
+use ratatui::widgets::Clear;
 use ratatui::Frame;
 
 pub struct SelectLinkModal {
@@ -53,17 +52,7 @@ impl Modal for SelectLinkModal {
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Clear, area);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Open Link ")
-            .border_style(Style::default().fg(Color::Cyan));
-        frame.render_widget(block, area);
-
-        let inner = area.inner(ratatui::layout::Margin {
-            vertical: 1,
-            horizontal: 1,
-        });
-        self.link_list.render(frame, inner);
+        self.link_list.render(frame, area);
     }
 
     fn title(&self) -> &str {
