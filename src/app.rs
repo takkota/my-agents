@@ -931,13 +931,43 @@ impl App {
                 Vec::new()
             };
 
+            // Build initial prompt file if instructions were provided
+            let prompt_file = if let Some(instructions) = bg_initial_instructions {
+                if bg_task.agent_cli != AgentCli::None {
+                    let mut prompt = instructions;
+                    let link_urls: Vec<String> = bg_task.links.iter().map(|l| l.url.clone()).collect();
+                    if !link_urls.is_empty() {
+                        prompt.push_str("\n\nLinks:\n");
+                        for url in &link_urls {
+                            prompt.push_str(&format!("- {}\n", url));
+                        }
+                    }
+                    let path = bg_task_dir.join(".initial_prompt");
+                    match std::fs::write(&path, &prompt) {
+                        Ok(()) => Some(path),
+                        Err(e) => {
+                            let _ = err_tx.send(format!("Failed to write initial prompt file: {}", e));
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             // Create tmux session
             let session_name = TmuxService::session_name(&bg_task.project_id, &bg_task.id);
             let tmux_session = if TmuxService::is_available() {
                 match tmux.create_session(&session_name, &bg_task_dir) {
                     Ok(()) => {
                         if bg_task.agent_cli != AgentCli::None {
-                            let _ = tmux.launch_agent(&session_name, &bg_task.agent_cli);
+                            let _ = tmux.launch_agent(
+                                &session_name,
+                                &bg_task.agent_cli,
+                                prompt_file.as_deref(),
+                            );
                         }
                         Some(session_name)
                     }
@@ -956,7 +986,7 @@ impl App {
                 Err(e) => Some(format!("{}", e)),
             };
 
-            // Send TaskSetupResult immediately so the UI updates without waiting
+            // Send TaskSetupResult immediately so the UI updates
             let _ = tx.send(TaskSetupResult {
                 task_id: updated_task.id.clone(),
                 project_id: updated_task.project_id.clone(),
@@ -964,30 +994,6 @@ impl App {
                 tmux_session: tmux_session.clone(),
                 error,
             });
-
-            // Send initial instructions to the agent (non-blocking for the UI)
-            if let (Some(session), Some(instructions)) = (tmux_session, bg_initial_instructions) {
-                if updated_task.agent_cli != AgentCli::None {
-                    // Build the prompt: instructions + link URLs
-                    let mut prompt = instructions;
-                    let link_urls: Vec<&str> = updated_task.links.iter().map(|l| l.url.as_str()).collect();
-                    if !link_urls.is_empty() {
-                        prompt.push_str("\n\nLinks:\n");
-                        for url in &link_urls {
-                            prompt.push_str(&format!("- {}\n", url));
-                        }
-                    }
-                    // Wait for agent CLI to become ready (poll capture-pane, up to 30s)
-                    if tmux.wait_for_agent_ready(&session, &updated_task.agent_cli, 30) {
-                        let buffer_name = format!("ma-init-{}", updated_task.id);
-                        if let Err(e) = tmux.send_text(&session, &prompt, &buffer_name) {
-                            let _ = err_tx.send(format!("Failed to send initial instructions: {}", e));
-                        }
-                    } else {
-                        let _ = err_tx.send("Agent did not become ready within 30s; initial instructions were not sent.".to_string());
-                    }
-                }
-            }
         });
 
         self.task_setup_rx.push(rx);
