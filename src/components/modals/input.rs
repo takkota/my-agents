@@ -415,22 +415,27 @@ impl TextArea {
 
         // Scroll to keep cursor visible
         let visible_height = area.height.saturating_sub(2) as usize;
-        let (cursor_line, _) = self.cursor_line_col();
-        let scroll_offset = if visible_height > 0 && cursor_line >= visible_height {
+        let visible_width = area.width.saturating_sub(2) as usize;
+        let (cursor_line, cursor_col) = self.cursor_line_col();
+        let v_scroll = if visible_height > 0 && cursor_line >= visible_height {
             (cursor_line - visible_height + 1) as u16
         } else {
             0
         };
+        let h_scroll = if visible_width > 0 && cursor_col >= visible_width {
+            (cursor_col - visible_width + 1) as u16
+        } else {
+            0
+        };
 
-        let hint = if self.focused { " (Ctrl+Enter: submit) " } else { "" };
         let input = Paragraph::new(display_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(format!(" {} {}", self.label, hint))
+                    .title(format!(" {} ", self.label))
                     .border_style(Style::default().fg(border_color)),
             )
-            .scroll((scroll_offset, 0));
+            .scroll((v_scroll, h_scroll));
         frame.render_widget(input, area);
     }
 }
