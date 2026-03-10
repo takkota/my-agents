@@ -14,6 +14,8 @@ pub struct Config {
     pub tick_rate_ms: u64,
     #[serde(default = "default_monitor_interval")]
     pub monitor_interval_secs: u64,
+    #[serde(default = "default_pr_monitor_interval")]
+    pub pr_monitor_interval_secs: u64,
 }
 
 fn default_data_dir() -> PathBuf {
@@ -34,6 +36,10 @@ fn default_monitor_interval() -> u64 {
     10
 }
 
+fn default_pr_monitor_interval() -> u64 {
+    60
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -41,6 +47,7 @@ impl Default for Config {
             default_agent_cli: default_agent_cli(),
             tick_rate_ms: default_tick_rate(),
             monitor_interval_secs: default_monitor_interval(),
+            pr_monitor_interval_secs: default_pr_monitor_interval(),
         }
     }
 }

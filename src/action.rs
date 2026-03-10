@@ -69,6 +69,11 @@ pub enum Action {
         project_id: String,
         status: Status,
     },
+    /// All PRs linked to this task have been merged
+    AllPrsMerged {
+        task_id: String,
+        project_id: String,
+    },
 
     // System
     Tick,

@@ -13,9 +13,11 @@ use crate::components::status_bar::StatusBar;
 use crate::components::task_tree::{TaskTree, TreeItem};
 use crate::config::Config;
 use crate::domain::project::{Project, RepoRef};
-use crate::domain::task::{AgentCli, Task};
+use crate::domain::task::{AgentCli, Status, Task};
 use crate::error::AppResult;
+use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
+use crate::services::pr_monitor::PrMonitor;
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
 use crate::storage::FsStore;
@@ -54,6 +56,11 @@ pub struct App {
     pub available_repos: Vec<std::path::PathBuf>,
     pub active_sessions: HashSet<String>,
 
+    // Monitors
+    agent_monitor: AgentMonitor,
+    pr_monitor: PrMonitor,
+    tick_count: u64,
+
     // Error display
     pub error_message: Option<String>,
 }
@@ -75,6 +82,8 @@ impl App {
         store.ensure_quickstart()?;
         let tmux = TmuxService::new();
         let worktree_svc = WorktreeService::new();
+        let agent_monitor = AgentMonitor::new(store.clone(), TmuxService::new());
+        let pr_monitor = PrMonitor::new(store.clone());
 
         let mut app = Self {
             running: true,
@@ -89,6 +98,9 @@ impl App {
             active_modal: None,
             available_repos: Vec::new(),
             active_sessions: HashSet::new(),
+            agent_monitor,
+            pr_monitor,
+            tick_count: 0,
             error_message: None,
         };
 
@@ -460,7 +472,21 @@ impl App {
                 self.rebuild_tree();
             }
 
+            Action::AllPrsMerged {
+                task_id,
+                project_id,
+            } => {
+                self.update_task(&project_id, &task_id, |task| {
+                    task.status = Status::Completed;
+                    task.updated_at = Utc::now();
+                })?;
+                self.reload_data()?;
+                self.rebuild_tree();
+            }
+
             Action::Tick => {
+                self.tick_count += 1;
+
                 // Refresh active sessions periodically
                 self.active_sessions.clear();
                 if let Ok(sessions) = self.tmux.list_sessions() {
@@ -483,6 +509,65 @@ impl App {
                 let session_name_owned = session_name.map(|s| s.to_string());
                 self.preview_panel
                     .update_preview(session_name_owned.as_deref(), &self.tmux);
+
+                // Agent monitor: check every monitor_interval_secs
+                // tick_rate_ms=250 → 4 ticks/sec → interval_secs * 4 ticks
+                let agent_interval_ticks =
+                    (self.config.monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
+                if self.tick_count % agent_interval_ticks == 0 {
+                    let agent_events = self.agent_monitor.check_all();
+                    for event in agent_events {
+                        match event {
+                            crate::services::agent_monitor::MonitorEvent::StatusChanged {
+                                task_id,
+                                project_id,
+                                status,
+                            } => {
+                                // Fill in project_id for Codex tasks (monitor doesn't have it)
+                                let pid = if project_id.is_empty() {
+                                    self.find_project_for_task(&task_id)
+                                        .unwrap_or_default()
+                                } else {
+                                    project_id
+                                };
+                                if !pid.is_empty() {
+                                    let _ = self.update_task(&pid, &task_id, |task| {
+                                        task.status = status;
+                                        task.updated_at = Utc::now();
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // PR monitor: check every pr_monitor_interval_secs
+                let pr_interval_ticks =
+                    (self.config.pr_monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
+                if self.tick_count % pr_interval_ticks == 0 {
+                    let pr_events = self.pr_monitor.check_all();
+                    for event in pr_events {
+                        match event {
+                            crate::services::pr_monitor::PrMonitorEvent::AllPrsMerged {
+                                task_id,
+                                project_id,
+                            } => {
+                                let _ = self.update_task(&project_id, &task_id, |task| {
+                                    task.status = Status::Completed;
+                                    task.updated_at = Utc::now();
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Reload data if monitors may have changed things
+                if self.tick_count % agent_interval_ticks == 0
+                    || self.tick_count % pr_interval_ticks == 0
+                {
+                    self.reload_data()?;
+                    self.rebuild_tree();
+                }
             }
 
             Action::Noop => {}
@@ -619,6 +704,15 @@ impl App {
             let _ = self.worktree_svc.remove_worktree(wt);
         }
         Ok(())
+    }
+
+    fn find_project_for_task(&self, task_id: &str) -> Option<String> {
+        for (project_id, tasks) in &self.tasks_by_project {
+            if tasks.iter().any(|t| t.id == task_id) {
+                return Some(project_id.clone());
+            }
+        }
+        None
     }
 
     fn update_task<F>(&self, project_id: &str, task_id: &str, updater: F) -> AppResult<()>

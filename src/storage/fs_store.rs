@@ -172,6 +172,66 @@ impl FsStore {
             fs::write(dir.join("AGENTS.md"), agents_lines.join("\n") + "\n")?;
         }
 
+        // Write Claude Code hooks config for Claude agent tasks
+        if task.agent_cli == crate::domain::task::AgentCli::Claude {
+            self.write_claude_hooks(task)?;
+        }
+
+        Ok(())
+    }
+
+    /// Write `.claude/settings.json` in the task directory with hooks that
+    /// signal task state changes (Stop and Notification/idle_prompt).
+    fn write_claude_hooks(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+        let signal_path = task_dir.join(".agent_signal");
+        let signal_path_str = signal_path.to_string_lossy();
+
+        let claude_dir = task_dir.join(".claude");
+        fs::create_dir_all(&claude_dir)?;
+
+        // Write hooks configuration
+        // - Stop hook: write "stop" to signal file when agent completes
+        // - Notification hook: write "idle" to signal file on any notification
+        //   (covers idle_prompt, permission_prompt, etc.)
+        // - PreToolUse hook: clear signal file when agent starts working
+        let settings = serde_json::json!({
+            "hooks": {
+                "Stop": [
+                    {
+                        "type": "command",
+                        "command": format!(
+                            "echo stop > {}",
+                            shell_escape(&signal_path_str)
+                        )
+                    }
+                ],
+                "Notification": [
+                    {
+                        "type": "command",
+                        "command": format!(
+                            "echo idle > {}",
+                            shell_escape(&signal_path_str)
+                        )
+                    }
+                ],
+                "PreToolUse": [
+                    {
+                        "type": "command",
+                        "command": format!(
+                            "rm -f {}",
+                            shell_escape(&signal_path_str)
+                        )
+                    }
+                ]
+            }
+        });
+
+        fs::write(
+            claude_dir.join("settings.json"),
+            serde_json::to_string_pretty(&settings)?,
+        )?;
+
         Ok(())
     }
 
@@ -215,4 +275,9 @@ impl FsStore {
 
         Ok(())
     }
+}
+
+/// Simple shell escaping: wrap in single quotes, escaping any existing single quotes.
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
