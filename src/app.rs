@@ -186,6 +186,17 @@ impl App {
     }
 
     pub fn handle_key_event(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // Remap Ctrl+N/P to arrow keys for navigation
+        let key = if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char('n') => KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+                KeyCode::Char('p') => KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+                _ => key,
+            }
+        } else {
+            key
+        };
+
         // Modal takes priority
         if let Some(modal) = &mut self.active_modal {
             // Ctrl+C acts as Escape to close modals
