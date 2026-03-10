@@ -138,6 +138,15 @@ impl FsStore {
     pub fn write_agent_config_files(&self, task: &Task) -> AppResult<()> {
         let dir = self.task_dir(&task.project_id, &task.id);
 
+        // Initialize git repo in task directory to bypass Claude Code workspace trust dialog.
+        // Non-git directories trigger an interactive trust prompt that blocks automated sessions.
+        if !dir.join(".git").exists() {
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&dir)
+                .output()?;
+        }
+
         // Write CLAUDE.md with references
         let claude_lines: Vec<String> = task
             .worktrees
