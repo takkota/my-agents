@@ -276,6 +276,9 @@ impl App {
                             let selected_repos: Vec<std::path::PathBuf> = project
                                 .map(|p| p.repos.iter().map(|r| r.path.clone()).collect())
                                 .unwrap_or_default();
+                            let current_copy_files: Vec<String> = project
+                                .map(|p| p.worktree_copy_files.clone())
+                                .unwrap_or_default();
 
                             self.active_modal = Some(ModalKind::EditItem(EditItemModal::Project(
                                 EditProjectModal::new(
@@ -283,6 +286,7 @@ impl App {
                                     name,
                                     self.available_repos.clone(),
                                     selected_repos,
+                                    current_copy_files,
                                 ),
                             )));
                         }
@@ -370,7 +374,7 @@ impl App {
             }
 
             // CRUD actions
-            Action::CreateProject { name, repos } => {
+            Action::CreateProject { name, repos, worktree_copy_files } => {
                 // Check for duplicate project ID
                 if self.projects.iter().any(|p| p.id == name) {
                     self.error_message = Some(format!("Project '{}' already exists", name));
@@ -385,6 +389,7 @@ impl App {
                         .into_iter()
                         .map(|(n, p)| RepoRef { name: n, path: p })
                         .collect(),
+                    worktree_copy_files,
                     created_at: now,
                     updated_at: now,
                 };
@@ -398,6 +403,7 @@ impl App {
                 project_id,
                 name,
                 repos,
+                worktree_copy_files,
             } => {
                 if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
                     let mut updated = project;
@@ -406,6 +412,7 @@ impl App {
                         .into_iter()
                         .map(|(n, p)| RepoRef { name: n, path: p })
                         .collect();
+                    updated.worktree_copy_files = worktree_copy_files;
                     updated.updated_at = Utc::now();
                     self.store.save_project(&updated)?;
                 }
@@ -596,7 +603,24 @@ impl App {
                 .worktree_svc
                 .create_worktrees_for_task(&task_dir, &task_id, &repos)
             {
-                Ok(wts) => wts,
+                Ok(wts) => {
+                    // Copy configured files from upstream repos to worktrees
+                    if !project.worktree_copy_files.is_empty() {
+                        for wt in &wts {
+                            if let Err(e) = WorktreeService::copy_files_to_worktree(
+                                &wt.upstream_path,
+                                &wt.worktree_path,
+                                &project.worktree_copy_files,
+                            ) {
+                                self.error_message = Some(format!(
+                                    "Failed to copy files to {}: {}",
+                                    wt.repo_name, e
+                                ));
+                            }
+                        }
+                    }
+                    wts
+                }
                 Err(_) => Vec::new(), // Worktree creation failed, continue without
             }
         } else {

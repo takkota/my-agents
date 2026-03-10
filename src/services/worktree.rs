@@ -76,6 +76,27 @@ impl WorktreeService {
         Ok(())
     }
 
+    /// Copy specified files from upstream repo to worktree directory.
+    /// Files that don't exist in the upstream repo are silently skipped.
+    pub fn copy_files_to_worktree(
+        upstream_repo: &Path,
+        worktree_path: &Path,
+        files: &[String],
+    ) -> AppResult<()> {
+        for file in files {
+            let src = upstream_repo.join(file);
+            let dst = worktree_path.join(file);
+            if src.exists() {
+                // Ensure parent directory exists
+                if let Some(parent) = dst.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&src, &dst)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn create_worktrees_for_task(
         &self,
         task_dir: &Path,
