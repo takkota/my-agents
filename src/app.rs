@@ -472,16 +472,8 @@ impl App {
                 self.rebuild_tree();
             }
 
-            Action::AllPrsMerged {
-                task_id,
-                project_id,
-            } => {
-                self.update_task(&project_id, &task_id, |task| {
-                    task.status = Status::Completed;
-                    task.updated_at = Utc::now();
-                })?;
-                self.reload_data()?;
-                self.rebuild_tree();
+            Action::AllPrsMerged { .. } => {
+                // Handled inline in Tick via pr_monitor.poll_results()
             }
 
             Action::Tick => {
@@ -514,6 +506,8 @@ impl App {
                 // tick_rate_ms=250 → 4 ticks/sec → interval_secs * 4 ticks
                 let agent_interval_ticks =
                     (self.config.monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
+                let mut data_changed = false;
+
                 if self.tick_count % agent_interval_ticks == 0 {
                     let agent_events = self.agent_monitor.check_all();
                     for event in agent_events {
@@ -523,48 +517,41 @@ impl App {
                                 project_id,
                                 status,
                             } => {
-                                // Fill in project_id for Codex tasks (monitor doesn't have it)
-                                let pid = if project_id.is_empty() {
-                                    self.find_project_for_task(&task_id)
-                                        .unwrap_or_default()
-                                } else {
-                                    project_id
-                                };
-                                if !pid.is_empty() {
-                                    let _ = self.update_task(&pid, &task_id, |task| {
-                                        task.status = status;
-                                        task.updated_at = Utc::now();
-                                    });
-                                }
+                                let _ = self.update_task(&project_id, &task_id, |task| {
+                                    task.status = status;
+                                    task.updated_at = Utc::now();
+                                });
+                                data_changed = true;
                             }
                         }
                     }
                 }
 
-                // PR monitor: check every pr_monitor_interval_secs
+                // PR monitor: kick off background check every pr_monitor_interval_secs
                 let pr_interval_ticks =
                     (self.config.pr_monitor_interval_secs * 1000 / self.config.tick_rate_ms).max(1);
                 if self.tick_count % pr_interval_ticks == 0 {
-                    let pr_events = self.pr_monitor.check_all();
-                    for event in pr_events {
-                        match event {
-                            crate::services::pr_monitor::PrMonitorEvent::AllPrsMerged {
-                                task_id,
-                                project_id,
-                            } => {
-                                let _ = self.update_task(&project_id, &task_id, |task| {
-                                    task.status = Status::Completed;
-                                    task.updated_at = Utc::now();
-                                });
-                            }
+                    self.pr_monitor.start_check();
+                }
+
+                // Poll for completed PR check results (non-blocking)
+                let pr_events = self.pr_monitor.poll_results();
+                for event in pr_events {
+                    match event {
+                        crate::services::pr_monitor::PrMonitorEvent::AllPrsMerged {
+                            task_id,
+                            project_id,
+                        } => {
+                            let _ = self.update_task(&project_id, &task_id, |task| {
+                                task.status = Status::Completed;
+                                task.updated_at = Utc::now();
+                            });
+                            data_changed = true;
                         }
                     }
                 }
 
-                // Reload data if monitors may have changed things
-                if self.tick_count % agent_interval_ticks == 0
-                    || self.tick_count % pr_interval_ticks == 0
-                {
+                if data_changed {
                     self.reload_data()?;
                     self.rebuild_tree();
                 }
@@ -704,15 +691,6 @@ impl App {
             let _ = self.worktree_svc.remove_worktree(wt);
         }
         Ok(())
-    }
-
-    fn find_project_for_task(&self, task_id: &str) -> Option<String> {
-        for (project_id, tasks) in &self.tasks_by_project {
-            if tasks.iter().any(|t| t.id == task_id) {
-                return Some(project_id.clone());
-            }
-        }
-        None
     }
 
     fn update_task<F>(&self, project_id: &str, task_id: &str, updater: F) -> AppResult<()>
