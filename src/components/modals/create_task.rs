@@ -59,17 +59,26 @@ impl CreateTaskModal {
         }
     }
 
-    fn next_field(&mut self) {
+    fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
         self.notes_input.focused = false;
         self.priority_list.focused = false;
         self.agent_list.focused = false;
 
-        self.current_field = match self.current_field {
-            Field::Name => Field::Notes,
-            Field::Notes => Field::Priority,
-            Field::Priority => Field::AgentCli,
-            Field::AgentCli => Field::Name,
+        self.current_field = if forward {
+            match self.current_field {
+                Field::Name => Field::Notes,
+                Field::Notes => Field::Priority,
+                Field::Priority => Field::AgentCli,
+                Field::AgentCli => Field::Name,
+            }
+        } else {
+            match self.current_field {
+                Field::Name => Field::AgentCli,
+                Field::Notes => Field::Name,
+                Field::Priority => Field::Notes,
+                Field::AgentCli => Field::Priority,
+            }
         };
 
         match self.current_field {
@@ -85,8 +94,12 @@ impl Modal for CreateTaskModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
         match key.code {
             KeyCode::Esc => Ok(Some(Action::CloseModal)),
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.next_field();
+            KeyCode::Tab => {
+                self.switch_field(true);
+                Ok(None)
+            }
+            KeyCode::BackTab => {
+                self.switch_field(false);
                 Ok(None)
             }
             KeyCode::Enter => {

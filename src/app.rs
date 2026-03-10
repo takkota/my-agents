@@ -421,6 +421,7 @@ impl App {
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+                self.refresh_preview_task_info();
             }
             Action::UpdateTask {
                 task_id,
@@ -436,6 +437,7 @@ impl App {
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+                self.refresh_preview_task_info();
             }
             Action::UpdateTaskStatus {
                 task_id,
@@ -462,6 +464,7 @@ impl App {
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+                self.refresh_preview_task_info();
             }
             Action::DeleteTask {
                 project_id,
@@ -514,28 +517,19 @@ impl App {
                 }
 
                 // Update preview with task info
-                let selected_task = self.task_tree.selected_item().and_then(|item| {
+                self.refresh_preview_task_info();
+
+                let session_name = self.task_tree.selected_item().and_then(|item| {
                     if let TreeItem::Task { id, project_id, .. } = item {
                         self.tasks_by_project
                             .get(project_id.as_str())
                             .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
+                            .and_then(|t| t.tmux_session.as_deref())
                     } else {
                         None
                     }
                 });
-
-                let session_name_owned = selected_task
-                    .and_then(|t| t.tmux_session.as_deref())
-                    .map(|s| s.to_string());
-
-                // Update task info (links + notes)
-                if let Some(task) = selected_task {
-                    self.preview_panel
-                        .update_task_info(task.links.clone(), task.notes.clone());
-                } else {
-                    self.preview_panel.update_task_info(Vec::new(), None);
-                }
-
+                let session_name_owned = session_name.map(|s| s.to_string());
                 self.preview_panel
                     .update_preview(session_name_owned.as_deref(), &self.tmux);
             }
@@ -692,6 +686,24 @@ impl App {
         updater(&mut updated);
         self.store.save_task(&updated)?;
         Ok(())
+    }
+
+    fn refresh_preview_task_info(&mut self) {
+        let selected_task = self.task_tree.selected_item().and_then(|item| {
+            if let TreeItem::Task { id, project_id, .. } = item {
+                self.tasks_by_project
+                    .get(project_id.as_str())
+                    .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
+            } else {
+                None
+            }
+        });
+        if let Some(task) = selected_task {
+            self.preview_panel
+                .update_task_info(task.links.clone(), task.notes.clone());
+        } else {
+            self.preview_panel.update_task_info(Vec::new(), None);
+        }
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
