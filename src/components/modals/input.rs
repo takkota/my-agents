@@ -334,9 +334,18 @@ impl TextArea {
             .map(|pos| cursor_byte + pos)
             .unwrap_or(self.value.len());
         if cursor_byte == end_byte {
-            // Already at end of line content — delete the newline itself (join with next line)
+            // Already at end of line content — delete the newline to join lines
             if cursor_byte < self.value.len() && self.value.as_bytes()[cursor_byte] == b'\n' {
+                // Newline is at cursor (middle of text) — remove it to join with next line
                 self.value.remove(cursor_byte);
+                // Move cursor to start of current line for consistent Ctrl+K chaining
+                self.move_to_line_start();
+            } else if cursor_byte > 0 && self.value.as_bytes()[cursor_byte - 1] == b'\n' {
+                // Cursor is at start of last line (empty) — remove preceding newline
+                self.value.remove(cursor_byte - 1);
+                self.cursor -= 1;
+                // Move cursor to the start of the (now current) line
+                self.move_to_line_start();
             }
         } else {
             self.value.drain(cursor_byte..end_byte);
