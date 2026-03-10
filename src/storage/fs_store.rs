@@ -295,7 +295,7 @@ impl FsStore {
     }
 
     /// Write `.claude/settings.json` in the task directory with hooks that
-    /// support task management (PR link discovery, manual_todo marker cleanup).
+    /// support task management (prompt activity detection, PR link discovery).
     pub fn write_claude_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 
@@ -303,24 +303,24 @@ impl FsStore {
         fs::create_dir_all(&claude_dir)?;
 
         // Write hooks configuration
-        // - PreToolUse hook: clear manual_todo marker when agent starts working
+        // - UserPromptSubmit hook: create .prompt_submitted marker when user sends a prompt
         // - PostToolUse hook: extract GitHub PR URLs from tool output
         let pr_links_path = task_dir.join(".pr_links");
         let pr_links_path_str = pr_links_path.to_string_lossy();
-        let manual_todo_path = task_dir.join(".manual_todo");
-        let manual_todo_path_str = manual_todo_path.to_string_lossy();
+        let prompt_submitted_path = task_dir.join(".prompt_submitted");
+        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
 
         let settings = serde_json::json!({
             "hooks": {
-                "PreToolUse": [
+                "UserPromptSubmit": [
                     {
                         "matcher": "",
                         "hooks": [
                             {
                                 "type": "command",
                                 "command": format!(
-                                    "rm -f {} </dev/null",
-                                    shell_escape(&manual_todo_path_str)
+                                    "touch {}",
+                                    shell_escape(&prompt_submitted_path_str)
                                 )
                             }
                         ]

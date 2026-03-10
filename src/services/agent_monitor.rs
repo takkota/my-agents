@@ -15,9 +15,9 @@ pub enum MonitorEvent {
 /// File where PostToolUse hook appends discovered PR URLs.
 const PR_LINKS_FILE: &str = ".pr_links";
 
-/// Marker file created when user manually sets Todo status.
-/// Cleared by PreToolUse hook when Claude Code actually starts working (tool execution).
-const MANUAL_TODO_FILE: &str = ".manual_todo";
+/// Marker file created by UserPromptSubmit hook when the user sends a prompt.
+/// Signals that the user is actively working in the session.
+const PROMPT_SUBMITTED_FILE: &str = ".prompt_submitted";
 
 impl AgentMonitor {
     pub fn new(store: FsStore, tmux: TmuxService) -> Self {
@@ -45,9 +45,11 @@ impl AgentMonitor {
     }
 
     /// Claude Code: check task status based on tmux session and marker files.
-    /// - Todo + `.manual_todo` absent + session alive → InProgress (agent started real work)
-    /// - Todo + `.manual_todo` present → stay Todo (agent hasn't used tools yet)
+    /// - (Todo|Completed) + `.prompt_submitted` present + session alive → InProgress
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
+    ///
+    /// The `.prompt_submitted` marker is created by the UserPromptSubmit hook
+    /// when the user sends a prompt, providing evidence of active work.
     ///
     /// Note: InProgress → ActionRequired transitions are handled by agent skills, not the monitor.
     fn check_claude_task(
@@ -58,27 +60,27 @@ impl AgentMonitor {
         tmux_session: &Option<String>,
     ) -> Option<MonitorEvent> {
         let task_dir = self.store.task_dir(project_id, task_id);
-        let manual_todo_path = task_dir.join(MANUAL_TODO_FILE);
+        let prompt_submitted_path = task_dir.join(PROMPT_SUBMITTED_FILE);
         let session_alive = tmux_session
             .as_deref()
             .is_some_and(|s| self.tmux.session_exists(s));
 
-        // Todo requires special handling: only transition when there is evidence
-        // that the agent has actually done work (PreToolUse hook cleared `.manual_todo`).
-        if *current_status == Status::Todo {
-            if session_alive {
-                if manual_todo_path.exists() {
-                    // Manual marker present — agent hasn't used tools yet
-                    return None;
-                }
-                // Manual marker absent — agent is actively working
+        // For Todo and Completed tasks, transition to InProgress only when
+        // the UserPromptSubmit hook has created the `.prompt_submitted` marker.
+        if *current_status == Status::Todo || *current_status == Status::Completed {
+            if session_alive && prompt_submitted_path.exists() {
+                // User submitted a prompt — agent is actively working.
+                // The marker file is NOT removed here; the caller (App)
+                // removes it after successfully persisting the status change
+                // to avoid losing the signal on save failure.
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
                     project_id: project_id.to_string(),
                     status: Status::InProgress,
                 });
-            } else if tmux_session.is_some() {
-                // Had a session but it's dead — agent crashed or failed to start
+            }
+            // Todo-specific: detect crashed/dead sessions
+            if *current_status == Status::Todo && !session_alive && tmux_session.is_some() {
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
                     project_id: project_id.to_string(),
