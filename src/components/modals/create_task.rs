@@ -197,8 +197,4 @@ impl Modal for CreateTaskModal {
             _ => {}
         }
     }
-
-    fn title(&self) -> &str {
-        "New Task"
-    }
 }

@@ -54,8 +54,4 @@ impl Modal for SelectLinkModal {
         frame.render_widget(Clear, area);
         self.link_list.render(frame, area);
     }
-
-    fn title(&self) -> &str {
-        "Open Link"
-    }
 }

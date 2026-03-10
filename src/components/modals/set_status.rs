@@ -77,8 +77,4 @@ impl Modal for SetStatusModal {
         });
         self.list.render(frame, inner);
     }
-
-    fn title(&self) -> &str {
-        "Set Status"
-    }
 }

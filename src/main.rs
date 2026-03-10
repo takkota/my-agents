@@ -60,11 +60,6 @@ async fn main() -> AppResult<()> {
                     app.error_message = Some(format!("{}", e));
                 }
             }
-            Event::BackgroundAction(action) => {
-                if let Err(e) = app.update(action) {
-                    app.error_message = Some(format!("{}", e));
-                }
-            }
         }
 
         if !app.running {

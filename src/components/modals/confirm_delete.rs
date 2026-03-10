@@ -81,8 +81,4 @@ impl Modal for ConfirmDeleteModal {
         );
         frame.render_widget(paragraph, area);
     }
-
-    fn title(&self) -> &str {
-        "Confirm Delete"
-    }
 }

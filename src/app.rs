@@ -235,9 +235,6 @@ impl App {
             Action::MoveDown => {
                 self.task_tree.move_down();
             }
-            Action::ToggleExpand => {
-                self.task_tree.toggle_expand();
-            }
             Action::AttachSession => {
                 if let Some(name) = self.resolve_attach_session() {
                     return Ok(UpdateResult::AttachSession(name));
@@ -543,23 +540,6 @@ impl App {
                 }
             }
 
-            Action::AgentStatusChanged {
-                task_id,
-                project_id,
-                status,
-            } => {
-                self.update_task(&project_id, &task_id, |task| {
-                    task.status = status;
-                    task.updated_at = Utc::now();
-                })?;
-                self.reload_data()?;
-                self.rebuild_tree();
-            }
-
-            Action::AllPrsMerged { .. } => {
-                // Handled inline in Tick via pr_monitor.poll_results()
-            }
-
             Action::Tick => {
                 self.tick_count += 1;
 
@@ -643,7 +623,6 @@ impl App {
                 }
             }
 
-            Action::Noop => {}
         }
 
         Ok(UpdateResult::Continue)

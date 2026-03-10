@@ -1,7 +1,6 @@
 use crate::domain::task::{AgentCli, Status};
 use crate::services::tmux::TmuxService;
 use crate::storage::FsStore;
-use std::fs;
 
 pub struct AgentMonitor {
     store: FsStore,
@@ -114,11 +113,6 @@ impl AgentMonitor {
         }
     }
 
-    /// Clear the signal file (called when transitioning away from InReview).
-    pub fn clear_signal(&self, project_id: &str, task_id: &str) {
-        let signal_path = self.store.task_dir(project_id, task_id).join(SIGNAL_FILE);
-        let _ = fs::remove_file(signal_path);
-    }
 }
 
 fn is_waiting_for_input_codex(content: &str) -> bool {

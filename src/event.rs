@@ -1,4 +1,3 @@
-use crate::action::Action;
 use crate::error::AppResult;
 use crossterm::event::{EventStream, KeyEvent, KeyEventKind};
 use futures::StreamExt;
@@ -11,7 +10,6 @@ pub enum Event {
     Key(KeyEvent),
     Paste(String),
     Tick,
-    BackgroundAction(Action),
 }
 
 pub struct EventHandler {

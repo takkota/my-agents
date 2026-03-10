@@ -71,7 +71,7 @@ impl TmuxService {
 
                 nix::unistd::setsid().ok();
                 unsafe {
-                    libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY, 0);
+                    libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY.into(), 0);
                     libc::dup2(slave.as_raw_fd(), 0);
                     libc::dup2(slave.as_raw_fd(), 1);
                     libc::dup2(slave.as_raw_fd(), 2);

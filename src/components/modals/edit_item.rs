@@ -35,13 +35,6 @@ impl Modal for EditItemModal {
             EditItemModal::Task(m) => m.render(frame, area),
         }
     }
-
-    fn title(&self) -> &str {
-        match self {
-            EditItemModal::Project(m) => m.title(),
-            EditItemModal::Task(m) => m.title(),
-        }
-    }
 }
 
 // Edit Project
@@ -211,10 +204,6 @@ impl Modal for EditProjectModal {
             ProjectField::Repos => {}
         }
     }
-
-    fn title(&self) -> &str {
-        "Edit Project"
-    }
 }
 
 // Edit Task (name + notes)
@@ -336,9 +325,5 @@ impl Modal for EditTaskModal {
             TaskField::Name => self.name_input.insert_paste(text),
             TaskField::Notes => self.notes_input.insert_paste(text),
         }
-    }
-
-    fn title(&self) -> &str {
-        "Edit Task"
     }
 }

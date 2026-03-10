@@ -187,8 +187,4 @@ impl Modal for CreateProjectModal {
             Field::Repos => {}
         }
     }
-
-    fn title(&self) -> &str {
-        "New Project"
-    }
 }

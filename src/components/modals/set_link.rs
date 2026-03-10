@@ -120,8 +120,4 @@ impl Modal for SetLinkModal {
             Field::DisplayName => self.name_input.insert_paste(text),
         }
     }
-
-    fn title(&self) -> &str {
-        "Add Link"
-    }
 }

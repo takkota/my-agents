@@ -84,8 +84,4 @@ impl Modal for FilterModal {
         });
         self.status_list.render(frame, inner);
     }
-
-    fn title(&self) -> &str {
-        "Filter"
-    }
 }

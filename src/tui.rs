@@ -25,12 +25,6 @@ pub fn exit() -> AppResult<()> {
     Ok(())
 }
 
-pub fn suspend() -> AppResult<()> {
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste)?;
-    Ok(())
-}
-
 pub fn resume() -> AppResult<Tui> {
     enter()
 }

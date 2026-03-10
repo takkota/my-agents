@@ -66,8 +66,4 @@ impl Modal for SortModal {
         });
         self.list.render(frame, inner);
     }
-
-    fn title(&self) -> &str {
-        "Sort"
-    }
 }

@@ -20,7 +20,6 @@ pub enum TreeItem {
         name: String,
         status: Status,
         priority: crate::domain::task::Priority,
-        agent_cli: crate::domain::task::AgentCli,
         has_session: bool,
         links: Vec<crate::domain::task::TaskLink>,
         notes: Option<String>,
@@ -35,16 +34,6 @@ impl TreeItem {
         }
     }
 
-    pub fn is_project(&self) -> bool {
-        matches!(self, TreeItem::Project { .. })
-    }
-
-    pub fn task_id(&self) -> Option<&str> {
-        match self {
-            TreeItem::Task { id, .. } => Some(id),
-            _ => None,
-        }
-    }
 }
 
 pub struct TaskTree {
@@ -140,7 +129,6 @@ impl TaskTree {
                         name: task.name.clone(),
                         status: task.status,
                         priority: task.priority,
-                        agent_cli: task.agent_cli,
                         has_session,
                         links: task.links.clone(),
                         notes: task.notes.clone(),

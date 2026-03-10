@@ -65,16 +65,6 @@ impl Config {
         }
     }
 
-    pub fn save(&self) -> AppResult<()> {
-        // Always save to the canonical location (same as load)
-        let data_dir = default_data_dir();
-        let config_path = data_dir.join("config.toml");
-        fs::create_dir_all(&data_dir)?;
-        let content = toml::to_string_pretty(self)?;
-        fs::write(config_path, content)?;
-        Ok(())
-    }
-
     pub fn projects_dir(&self) -> PathBuf {
         self.data_dir.join("projects")
     }
