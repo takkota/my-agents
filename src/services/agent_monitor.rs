@@ -12,9 +12,6 @@ pub enum MonitorEvent {
     PrLinkDiscovered { task_id: String, project_id: String, url: String },
 }
 
-/// Signal file name written by Claude Code hooks in the task directory.
-const SIGNAL_FILE: &str = ".agent_signal";
-
 /// File where PostToolUse hook appends discovered PR URLs.
 const PR_LINKS_FILE: &str = ".pr_links";
 
@@ -47,13 +44,12 @@ impl AgentMonitor {
         events
     }
 
-    /// Claude Code: check signal file written by hooks.
-    /// - Signal file exists + InProgress → InReview (agent stopped or idle)
-    /// - Signal file absent + tmux session alive → InProgress (PreToolUse hook cleared it)
+    /// Claude Code: check task status based on tmux session and marker files.
     /// - Todo + `.manual_todo` absent + session alive → InProgress (agent started real work)
     /// - Todo + `.manual_todo` present → stay Todo (agent hasn't used tools yet)
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
-    ///   Note: Todo → InReview is NOT allowed; Todo can only transition to InProgress or Blocked.
+    ///
+    /// Note: InProgress → InReview transitions are handled by agent skills, not the monitor.
     fn check_claude_task(
         &self,
         task_id: &str,
@@ -62,36 +58,20 @@ impl AgentMonitor {
         tmux_session: &Option<String>,
     ) -> Option<MonitorEvent> {
         let task_dir = self.store.task_dir(project_id, task_id);
-        let signal_path = task_dir.join(SIGNAL_FILE);
         let manual_todo_path = task_dir.join(MANUAL_TODO_FILE);
         let session_alive = tmux_session
             .as_deref()
             .is_some_and(|s| self.tmux.session_exists(s));
 
         // Todo requires special handling: only transition when there is evidence
-        // that the agent has actually done work.
-        //
-        // Evidence of activity:
-        //   1. PreToolUse hook cleared `.manual_todo` (agent executed tools)
-        //   2. Signal file exists (Stop/Notification hook fired = agent responded)
-        //
-        // If `.manual_todo` exists and no signal file, the agent hasn't responded
-        // yet (user may have just typed text), so we keep Todo.
+        // that the agent has actually done work (PreToolUse hook cleared `.manual_todo`).
         if *current_status == Status::Todo {
             if session_alive {
                 if manual_todo_path.exists() {
-                    if signal_path.exists() {
-                        // Agent responded (signal file written by Stop/Notification hook)
-                        // even though PreToolUse didn't fire (no tool use).
-                        // Clear the manual marker and transition.
-                        let _ = std::fs::remove_file(&manual_todo_path);
-                    } else {
-                        // No signal file, no tool use — agent hasn't done anything yet
-                        return None;
-                    }
+                    // Manual marker present — agent hasn't used tools yet
+                    return None;
                 }
                 // Manual marker absent — agent is actively working
-                let _ = std::fs::remove_file(&signal_path);
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
                     project_id: project_id.to_string(),
@@ -106,24 +86,6 @@ impl AgentMonitor {
                 });
             }
             return None;
-        }
-
-        if signal_path.exists() {
-            // Signal file present: agent stopped or idle → InReview (only from InProgress)
-            if *current_status == Status::InProgress {
-                return Some(MonitorEvent::StatusChanged {
-                    task_id: task_id.to_string(),
-                    project_id: project_id.to_string(),
-                    status: Status::InReview,
-                });
-            }
-        } else if *current_status == Status::InReview && session_alive {
-            // Signal file absent + session alive: PreToolUse hook cleared signal
-            return Some(MonitorEvent::StatusChanged {
-                task_id: task_id.to_string(),
-                project_id: project_id.to_string(),
-                status: Status::InProgress,
-            });
         }
 
         None

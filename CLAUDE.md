@@ -71,7 +71,7 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - Task IDs are first 8 chars of UUID v4
 - tmux session names follow pattern: `ma-{project_id}-{task_id_prefix}`
 - Worktree branches: `task/{task_id_6char}/{repo_name}`
-- `.agent_signal` file in task dir prevents agent monitor from overriding manual InReview status
+- `.manual_todo` file in task dir prevents agent monitor from flipping Todo to InProgress until agent uses tools
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
 - `ma-task` CLI (bash script in `~/.my-agents/bin/`) lets agents manage tasks via JSON commands
 - Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex
