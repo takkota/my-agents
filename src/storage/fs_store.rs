@@ -420,7 +420,13 @@ ma-task current
 ma-task status {task_id} <status>
 ```
 
-Valid statuses: `Todo`, `InProgress`, `InReview`, `Completed`, `Blocked`
+Valid statuses:
+
+- **Todo** — Not started yet.
+- **InProgress** — Currently being worked on.
+- **InReview** — Waiting for user review or PR review. Set this when you finish your work.
+- **Completed** — All PRs merged and work fully done. Usually set automatically by the system.
+- **Blocked** — Stopped due to an external dependency. Do not set this automatically; only when you truly cannot proceed.
 
 ### Add a link (PR, issue, etc.)
 
@@ -455,9 +461,7 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
 
 ## Guidelines
 
-- After creating a PR, add the link with `ma-task link`.
-- When you finish your work, set status to `InReview`.
-- If you're blocked, set status to `Blocked` with a note explaining why.
+- After creating a PR, always add the link with `ma-task link`.
 "#,
             task_id = task.id,
             project_id = task.project_id,
@@ -505,7 +509,13 @@ ma-task current
 ma-task status {task_id} <status>
 ```
 
-Valid statuses: `Todo`, `InProgress`, `InReview`, `Completed`, `Blocked`
+Valid statuses:
+
+- **Todo** — Not started yet.
+- **InProgress** — Currently being worked on.
+- **InReview** — Waiting for user review or PR review. Set this when you finish your work.
+- **Completed** — All PRs merged and work fully done. Usually set automatically by the system.
+- **Blocked** — Stopped due to an external dependency. Do not set this automatically; only when you truly cannot proceed.
 
 ### Add a link (PR, issue, etc.)
 
@@ -540,9 +550,7 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
 
 ## Guidelines
 
-- After creating a PR, add the link with `ma-task link`.
-- When you finish your work, set status to `InReview`.
-- If you're blocked, set status to `Blocked` with a note explaining why.
+- After creating a PR, always add the link with `ma-task link`.
 "#,
             task_id = task.id,
             project_id = task.project_id,
