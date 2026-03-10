@@ -62,6 +62,8 @@ pub struct App {
 
     // Background task setup receiver
     task_setup_rx: Vec<mpsc::Receiver<TaskSetupResult>>,
+    // Background error messages (e.g. from initial instructions sending)
+    bg_error_rx: Vec<mpsc::Receiver<String>>,
 
     // Monitors
     agent_monitor: AgentMonitor,
@@ -125,6 +127,7 @@ impl App {
             repo_scan_rx: Some(rx),
             active_sessions: HashSet::new(),
             task_setup_rx: Vec::new(),
+            bg_error_rx: Vec::new(),
             agent_monitor,
             pr_monitor,
             tick_count: 0,
@@ -183,6 +186,23 @@ impl App {
             let _ = self.reload_data();
             self.rebuild_tree();
             self.refresh_preview_task_info();
+        }
+
+        // Poll background error messages (e.g. from initial instructions sending)
+        let mut i = 0;
+        while i < self.bg_error_rx.len() {
+            match self.bg_error_rx[i].try_recv() {
+                Ok(error) => {
+                    self.error_message = Some(error);
+                    self.bg_error_rx.swap_remove(i);
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    i += 1;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.bg_error_rx.swap_remove(i);
+                }
+            }
         }
     }
 
@@ -878,6 +898,7 @@ impl App {
         let worktree_svc = WorktreeService::new();
         let tmux = TmuxService::new();
         let (tx, rx) = mpsc::channel();
+        let (err_tx, err_rx) = mpsc::channel();
         let bg_task = task.clone();
         let bg_task_dir = task_dir.clone();
         let bg_initial_instructions = initial_instructions;
@@ -935,8 +956,17 @@ impl App {
                 Err(e) => Some(format!("{}", e)),
             };
 
-            // Send initial instructions to the agent after it's launched
-            if let (Some(ref session), Some(instructions)) = (&tmux_session, bg_initial_instructions) {
+            // Send TaskSetupResult immediately so the UI updates without waiting
+            let _ = tx.send(TaskSetupResult {
+                task_id: updated_task.id.clone(),
+                project_id: updated_task.project_id.clone(),
+                worktrees,
+                tmux_session: tmux_session.clone(),
+                error,
+            });
+
+            // Send initial instructions to the agent (non-blocking for the UI)
+            if let (Some(session), Some(instructions)) = (tmux_session, bg_initial_instructions) {
                 if updated_task.agent_cli != AgentCli::None {
                     // Build the prompt: instructions + link URLs
                     let mut prompt = instructions;
@@ -948,42 +978,20 @@ impl App {
                         }
                     }
                     // Wait for agent CLI to become ready (poll capture-pane, up to 30s)
-                    if tmux.wait_for_agent_ready(session, &updated_task.agent_cli, 30) {
+                    if tmux.wait_for_agent_ready(&session, &updated_task.agent_cli, 30) {
                         let buffer_name = format!("ma-init-{}", updated_task.id);
-                        if let Err(e) = tmux.send_text(session, &prompt, &buffer_name) {
-                            let _ = tx.send(TaskSetupResult {
-                                task_id: updated_task.id,
-                                project_id: updated_task.project_id,
-                                worktrees,
-                                tmux_session,
-                                error: Some(format!("Failed to send initial instructions: {}", e)),
-                            });
-                            return;
+                        if let Err(e) = tmux.send_text(&session, &prompt, &buffer_name) {
+                            let _ = err_tx.send(format!("Failed to send initial instructions: {}", e));
                         }
                     } else {
-                        // Agent didn't become ready in time — report as warning
-                        let _ = tx.send(TaskSetupResult {
-                            task_id: updated_task.id,
-                            project_id: updated_task.project_id,
-                            worktrees,
-                            tmux_session,
-                            error: Some("Agent did not become ready within 30s; initial instructions were not sent. You can enter them manually.".to_string()),
-                        });
-                        return;
+                        let _ = err_tx.send("Agent did not become ready within 30s; initial instructions were not sent.".to_string());
                     }
                 }
             }
-
-            let _ = tx.send(TaskSetupResult {
-                task_id: updated_task.id,
-                project_id: updated_task.project_id,
-                worktrees,
-                tmux_session,
-                error,
-            });
         });
 
         self.task_setup_rx.push(rx);
+        self.bg_error_rx.push(err_rx);
 
         Ok(task_id)
     }
