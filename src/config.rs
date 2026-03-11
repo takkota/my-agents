@@ -19,6 +19,10 @@ pub struct Config {
     pub pr_monitor_interval_secs: u64,
     #[serde(default)]
     pub default_sort_mode: SortMode,
+    #[serde(default = "default_pr_prompt")]
+    pub pr_prompt: String,
+    #[serde(default = "default_review_prompt")]
+    pub review_prompt: String,
 }
 
 fn default_data_dir() -> PathBuf {
@@ -43,6 +47,14 @@ fn default_pr_monitor_interval() -> u64 {
     30
 }
 
+fn default_pr_prompt() -> String {
+    "CLAUDE.mdの指示に従い、今回の変更内容に対するPull Requestを作成してください。".to_string()
+}
+
+fn default_review_prompt() -> String {
+    "/codex exec --model gpt-5.3-codex --reasoning high \"このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。\"".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -52,6 +64,8 @@ impl Default for Config {
             monitor_interval_secs: default_monitor_interval(),
             pr_monitor_interval_secs: default_pr_monitor_interval(),
             default_sort_mode: SortMode::default(),
+            pr_prompt: default_pr_prompt(),
+            review_prompt: default_review_prompt(),
         }
     }
 }
@@ -67,6 +81,13 @@ impl Config {
         } else {
             Ok(Config::default())
         }
+    }
+
+    pub fn save(&self) -> AppResult<()> {
+        let config_path = default_data_dir().join("config.toml");
+        let content = toml::to_string_pretty(self)?;
+        fs::write(&config_path, content)?;
+        Ok(())
     }
 
     pub fn projects_dir(&self) -> PathBuf {
