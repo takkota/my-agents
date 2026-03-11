@@ -81,6 +81,10 @@ pub enum Action {
     },
 
     // Agent instructions
+    SendReviewInstruction {
+        task_id: String,
+        project_id: String,
+    },
     SendPrInstruction {
         task_id: String,
         project_id: String,

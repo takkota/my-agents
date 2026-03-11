@@ -175,6 +175,21 @@ impl TmuxService {
 
 
 
+    pub fn send_text(&self, session: &str, text: &str) -> AppResult<()> {
+        let output = Self::tmux_cmd()
+            .args(["send-keys", "-t", session, text, "Enter"])
+            .output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "Failed to send text to tmux session {}: {}",
+                session,
+                stderr.trim()
+            );
+        }
+        Ok(())
+    }
+
     pub fn session_name(project_id: &str, task_id: &str) -> String {
         format!("ma-{}-{}", project_id, &task_id[..task_id.len().min(6)])
     }
