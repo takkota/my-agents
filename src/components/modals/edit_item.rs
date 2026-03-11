@@ -41,6 +41,7 @@ impl Modal for EditItemModal {
 // Edit Project
 enum ProjectField {
     Name,
+    Description,
     CopyFiles,
     Repos,
 }
@@ -48,6 +49,7 @@ enum ProjectField {
 pub struct EditProjectModal {
     project_id: String,
     name_input: TextInput,
+    description_input: TextInput,
     copy_files_input: TextInput,
     repo_list: MultiSelectList<PathBuf>,
     current_field: ProjectField,
@@ -57,12 +59,16 @@ impl EditProjectModal {
     pub fn new(
         project_id: String,
         current_name: String,
+        current_description: Option<String>,
         available_repos: Vec<PathBuf>,
         selected_repos: Vec<PathBuf>,
         current_copy_files: Vec<String>,
     ) -> Self {
         let mut name_input = TextInput::new("Project Name").with_value(&current_name);
         name_input.focused = true;
+
+        let description_input = TextInput::new("Description (optional, one-line summary)")
+            .with_value(current_description.as_deref().unwrap_or(""));
 
         let copy_files_str = current_copy_files.join(", ");
         let copy_files_input = TextInput::new("Worktree Copy Files (comma-separated, e.g. .env,.env.local)")
@@ -86,6 +92,7 @@ impl EditProjectModal {
         Self {
             project_id,
             name_input,
+            description_input,
             copy_files_input,
             repo_list,
             current_field: ProjectField::Name,
@@ -94,11 +101,16 @@ impl EditProjectModal {
 
     fn switch_field(&mut self, forward: bool) {
         self.name_input.focused = false;
+        self.description_input.focused = false;
         self.copy_files_input.focused = false;
         self.repo_list.focused = false;
         self.current_field = if forward {
             match self.current_field {
                 ProjectField::Name => {
+                    self.description_input.focused = true;
+                    ProjectField::Description
+                }
+                ProjectField::Description => {
                     self.copy_files_input.focused = true;
                     ProjectField::CopyFiles
                 }
@@ -117,9 +129,13 @@ impl EditProjectModal {
                     self.repo_list.focused = true;
                     ProjectField::Repos
                 }
-                ProjectField::CopyFiles => {
+                ProjectField::Description => {
                     self.name_input.focused = true;
                     ProjectField::Name
+                }
+                ProjectField::CopyFiles => {
+                    self.description_input.focused = true;
+                    ProjectField::Description
                 }
                 ProjectField::Repos => {
                     self.copy_files_input.focused = true;
@@ -147,9 +163,16 @@ impl Modal for EditProjectModal {
                 })
                 .collect();
 
+            let description = if self.description_input.value.is_empty() {
+                None
+            } else {
+                Some(self.description_input.value.clone())
+            };
+
             return Ok(Some(Action::UpdateProject {
                 project_id: self.project_id.clone(),
                 name: self.name_input.value.clone(),
+                description,
                 repos,
                 worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
             }));
@@ -167,6 +190,7 @@ impl Modal for EditProjectModal {
             _ => {
                 match self.current_field {
                     ProjectField::Name => { self.name_input.handle_key(key); },
+                    ProjectField::Description => { self.description_input.handle_key(key); },
                     ProjectField::CopyFiles => { self.copy_files_input.handle_key(key); },
                     ProjectField::Repos => match key.code {
                         KeyCode::Up => self.repo_list.move_up(),
@@ -200,17 +224,24 @@ impl Modal for EditProjectModal {
             vertical: 1,
             horizontal: 1,
         });
-        let chunks =
-            Layout::vertical([Constraint::Length(3), Constraint::Length(3), Constraint::Min(5)]).split(inner);
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(5),
+        ])
+        .split(inner);
 
         self.name_input.render(frame, chunks[0]);
-        self.copy_files_input.render(frame, chunks[1]);
-        self.repo_list.render(frame, chunks[2]);
+        self.description_input.render(frame, chunks[1]);
+        self.copy_files_input.render(frame, chunks[2]);
+        self.repo_list.render(frame, chunks[3]);
     }
 
     fn handle_paste(&mut self, text: &str) {
         match self.current_field {
             ProjectField::Name => self.name_input.insert_paste(text),
+            ProjectField::Description => self.description_input.insert_paste(text),
             ProjectField::CopyFiles => self.copy_files_input.insert_paste(text),
             ProjectField::Repos => {}
         }
