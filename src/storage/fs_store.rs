@@ -280,6 +280,9 @@ impl FsStore {
             self.write_codex_notify(task)?;
         }
 
+        // Copy project-level skills to task directory so they are discoverable
+        self.copy_project_skills(task)?;
+
         // Mark the task directory as trusted in Claude Code's config
         // to bypass the "Quick safety check" workspace trust dialog.
         // Claude Code checks parent directories, so this covers the task dir.
@@ -333,6 +336,82 @@ impl FsStore {
             serde_json::to_string_pretty(&config)?,
         )?;
 
+        Ok(())
+    }
+
+    /// Copy skills from the project directory to the task directory.
+    /// Claude Code and Codex only discover skills in/below the CWD, so
+    /// project-level skills must be copied (symlinked) into each task dir.
+    fn copy_project_skills(&self, task: &Task) -> AppResult<()> {
+        let project_dir = self.project_dir(&task.project_id);
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+
+        // Claude Code skills: .claude/skills/
+        let project_claude_skills = project_dir.join(".claude").join("skills");
+        if project_claude_skills.is_dir() {
+            let task_claude_skills = task_dir.join(".claude").join("skills");
+            fs::create_dir_all(&task_claude_skills)?;
+            Self::copy_skills_dir(&project_claude_skills, &task_claude_skills)?;
+        }
+
+        // Codex skills: .agents/skills/
+        let project_agents_skills = project_dir.join(".agents").join("skills");
+        if project_agents_skills.is_dir() {
+            let task_agents_skills = task_dir.join(".agents").join("skills");
+            fs::create_dir_all(&task_agents_skills)?;
+            Self::copy_skills_dir(&project_agents_skills, &task_agents_skills)?;
+        }
+
+        Ok(())
+    }
+
+    /// Copy skill subdirectories from `src` into `dst`.
+    /// Each child directory in `src` is symlinked into `dst` unless a
+    /// directory with the same name already exists (e.g. task-management).
+    /// Errors on individual entries are logged and skipped rather than
+    /// aborting the entire operation.
+    fn copy_skills_dir(src: &std::path::Path, dst: &std::path::Path) -> AppResult<()> {
+        for entry in fs::read_dir(src)? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let name = entry.file_name();
+            let dest = dst.join(&name);
+
+            // Skip if the task already has this skill (e.g. built-in task-management).
+            // Use symlink_metadata to detect broken symlinks as well.
+            if fs::symlink_metadata(&dest).is_ok() {
+                continue;
+            }
+
+            let src_path = entry.path();
+
+            // Only process directories (or symlinks pointing to directories).
+            // Skip plain files or other entry types.
+            let meta = match fs::metadata(&src_path) {
+                Ok(m) => m,
+                Err(_) => continue, // broken symlink or inaccessible — skip
+            };
+            if !meta.is_dir() {
+                continue;
+            }
+
+            // Resolve to an absolute canonical path so the symlink works
+            // regardless of the relative position of the task directory.
+            let canonical = match fs::canonicalize(&src_path) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+
+            // Create a symlink in the task dir pointing to the canonical source
+            if let Err(e) = std::os::unix::fs::symlink(&canonical, &dest) {
+                eprintln!(
+                    "Warning: failed to symlink skill {:?} -> {:?}: {}",
+                    canonical, dest, e
+                );
+            }
+        }
         Ok(())
     }
 
