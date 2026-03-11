@@ -166,11 +166,16 @@ impl TmuxService {
 
 
     pub fn send_text(&self, session: &str, text: &str) -> AppResult<()> {
-        let status = Self::tmux_cmd()
+        let output = Self::tmux_cmd()
             .args(["send-keys", "-t", session, text, "Enter"])
             .output()?;
-        if !status.status.success() {
-            anyhow::bail!("Failed to send text to tmux session: {}", session);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "Failed to send text to tmux session {}: {}",
+                session,
+                stderr.trim()
+            );
         }
         Ok(())
     }

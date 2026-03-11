@@ -749,16 +749,36 @@ impl App {
                 task_id,
                 project_id,
             } => {
-                let session_name = TmuxService::session_name(&project_id, &task_id);
-                if self.tmux.session_exists(&session_name) {
-                    let review_prompt = "/codex exec --model gpt-5.3-codex --reasoning high \"このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。\"";
-                    if let Err(e) = self.tmux.send_text(&session_name, review_prompt) {
+                let task = self
+                    .tasks_by_project
+                    .get(project_id.as_str())
+                    .and_then(|tasks| tasks.iter().find(|t| t.id == task_id))
+                    .cloned();
+                if let Some(task) = task {
+                    if task.agent_cli == AgentCli::None {
                         self.error_message =
-                            Some(format!("Failed to send review instruction: {}", e));
+                            Some("No agent CLI configured for this task".to_string());
+                    } else {
+                        let session_name = task
+                            .tmux_session
+                            .clone()
+                            .unwrap_or_else(|| {
+                                TmuxService::session_name(&project_id, &task_id)
+                            });
+                        if self.tmux.session_exists(&session_name) {
+                            let review_prompt = "/codex exec --model gpt-5.3-codex --reasoning high \"このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。\"";
+                            if let Err(e) = self.tmux.send_text(&session_name, review_prompt)
+                            {
+                                self.error_message = Some(format!(
+                                    "Failed to send review instruction: {}",
+                                    e
+                                ));
+                            }
+                        } else {
+                            self.error_message =
+                                Some("No active session for this task".to_string());
+                        }
                     }
-                } else {
-                    self.error_message =
-                        Some("No active session for this task".to_string());
                 }
             }
 
