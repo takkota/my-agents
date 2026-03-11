@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use unicode_width::UnicodeWidthChar;
 
 const CTRL_Q: u8 = 0x11; // ASCII 17
@@ -63,10 +64,7 @@ impl TmuxService {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".my-agents")
             .join("bin");
-        let path_cmd = format!(
-            "export PATH=\"{}:$PATH\"",
-            bin_dir.to_string_lossy()
-        );
+        let path_cmd = format!("export PATH=\"{}:$PATH\"", bin_dir.to_string_lossy());
         Self::tmux_cmd()
             .args(["send-keys", "-t", name, &path_cmd, "Enter"])
             .output()?;
@@ -125,11 +123,7 @@ impl TmuxService {
                 nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGKILL).ok();
                 // Non-blocking reap; the OS will clean up the zombie shortly if
                 // not reaped here.
-                nix::sys::wait::waitpid(
-                    child,
-                    Some(nix::sys::wait::WaitPidFlag::WNOHANG),
-                )
-                .ok();
+                nix::sys::wait::waitpid(child, Some(nix::sys::wait::WaitPidFlag::WNOHANG)).ok();
 
                 result
             }
@@ -154,17 +148,12 @@ impl TmuxService {
         Ok(sanitize_for_display(raw))
     }
 
-    pub fn send_keys(&self, session: &str, text: &str) -> AppResult<()> {
-        let output = Self::tmux_cmd()
-            .args(["send-keys", "-t", session, text, "Enter"])
-            .output()?;
-        if !output.status.success() {
-            anyhow::bail!("Failed to send keys to tmux session: {}", session);
-        }
-        Ok(())
-    }
-
-    pub fn launch_agent(&self, session: &str, cli: &AgentCli, initial_prompt_file: Option<&Path>) -> AppResult<()> {
+    pub fn launch_agent(
+        &self,
+        session: &str,
+        cli: &AgentCli,
+        initial_prompt_file: Option<&Path>,
+    ) -> AppResult<()> {
         if let Some(cmd) = cli.launch_command() {
             let full_cmd = if let Some(prompt_file) = initial_prompt_file {
                 // Pass initial prompt via file using single-quoted path to prevent
@@ -181,7 +170,60 @@ impl TmuxService {
         Ok(())
     }
 
+    pub fn send_prompt(&self, session: &str, cli: AgentCli, text: &str) -> AppResult<()> {
+        match cli {
+            // Codex treats rapid `send-keys ... Enter` input as a paste burst and may leave the
+            // text in the composer instead of submitting it. Bracketed paste avoids that path.
+            AgentCli::Codex => self.paste_text_and_submit(session, text),
+            AgentCli::Claude | AgentCli::None => self.send_text(session, text),
+        }
+    }
 
+    fn paste_text_and_submit(&self, session: &str, text: &str) -> AppResult<()> {
+        let buffer_name = format!(
+            "ma-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+
+        let set_status = Self::tmux_cmd()
+            .args(["set-buffer", "-b", &buffer_name, "--", text])
+            .status()?;
+        if !set_status.success() {
+            anyhow::bail!("Failed to stage tmux paste buffer for session: {}", session);
+        }
+
+        let paste_status = Self::tmux_cmd()
+            .args([
+                "paste-buffer",
+                "-d",
+                "-p",
+                "-b",
+                &buffer_name,
+                "-t",
+                session,
+            ])
+            .status()?;
+        if !paste_status.success() {
+            let _ = Self::tmux_cmd()
+                .args(["delete-buffer", "-b", &buffer_name])
+                .status();
+            anyhow::bail!("Failed to paste text into tmux session: {}", session);
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
+
+        let enter_status = Self::tmux_cmd()
+            .args(["send-keys", "-t", session, "Enter"])
+            .status()?;
+        if !enter_status.success() {
+            anyhow::bail!("Failed to submit prompt in tmux session: {}", session);
+        }
+
+        Ok(())
+    }
 
     pub fn send_text(&self, session: &str, text: &str) -> AppResult<()> {
         let output = Self::tmux_cmd()
@@ -282,7 +324,7 @@ fn ambiguous_replacement(c: char) -> char {
         '\u{2500}' | '\u{2501}' | '\u{2504}' | '\u{2505}' | '\u{2508}' | '\u{2509}' => '-',
         '\u{2502}' | '\u{2503}' | '\u{2506}' | '\u{2507}' | '\u{250A}' | '\u{250B}' => '|',
         '\u{250C}'..='\u{254B}' => '+', // corners and crosses
-        '\u{2026}' => '.', // ellipsis
+        '\u{2026}' => '.',              // ellipsis
         _ => ' ',
     }
 }
@@ -401,7 +443,11 @@ fn io_loop(master_fd: i32, child: nix::unistd::Pid, stdin_fd: i32) -> AppResult<
         // Read from PTY master, write to stdout
         if poll_fds[1].revents & libc::POLLIN != 0 {
             let n = unsafe {
-                libc::read(master_fd, master_buf.as_mut_ptr() as *mut _, master_buf.len())
+                libc::read(
+                    master_fd,
+                    master_buf.as_mut_ptr() as *mut _,
+                    master_buf.len(),
+                )
             };
             if n <= 0 {
                 break;
