@@ -451,7 +451,8 @@ impl FsStore {
 
     /// Write `.claude/settings.json` in the task directory with hooks that
     /// support task management (prompt activity detection, agent stop detection,
-    /// PR link discovery).
+    /// PR link discovery). Also merges non-hook settings (e.g. `enabledPlugins`)
+    /// from the project-level `.claude/settings.json` if present.
     pub fn write_claude_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 
@@ -465,7 +466,7 @@ impl FsStore {
         let agent_stopped_path = task_dir.join(".agent_stopped");
         let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
 
-        let settings = serde_json::json!({
+        let mut settings = serde_json::json!({
             "hooks": {
                 "UserPromptSubmit": [
                     {
@@ -512,6 +513,47 @@ impl FsStore {
                 ]
             }
         });
+
+        // Merge allowed settings from project-level .claude/settings.json
+        // (e.g. enabledPlugins) so that project configuration is inherited.
+        // Uses an allowlist to avoid leaking unknown/dangerous keys.
+        const ALLOWED_PROJECT_KEYS: &[&str] = &["enabledPlugins"];
+
+        let project_settings_path = self
+            .project_dir(&task.project_id)
+            .join(".claude")
+            .join("settings.json");
+        if project_settings_path.exists() {
+            match fs::read_to_string(&project_settings_path) {
+                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(project_settings) => {
+                        if let Some(project_obj) = project_settings.as_object() {
+                            let settings_obj = settings.as_object_mut().unwrap();
+                            for key in ALLOWED_PROJECT_KEYS {
+                                if let Some(value) = project_obj.get(*key) {
+                                    settings_obj.insert((*key).to_string(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: failed to parse project settings {}: {}",
+                            project_settings_path.display(),
+                            e
+                        );
+                    }
+                },
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    eprintln!(
+                        "Warning: failed to read project settings {}: {}",
+                        project_settings_path.display(),
+                        e
+                    );
+                }
+                _ => {} // File not found after exists() check — race condition, ignore
+            }
+        }
 
         fs::write(
             claude_dir.join("settings.json"),
