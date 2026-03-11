@@ -140,6 +140,26 @@ ma-task link <task-id> <url> [--name <display-name>]
 
 **出力:** 更新後の task.json (JSON)
 
+### projects — プロジェクト一覧
+
+```bash
+ma-task projects
+```
+
+全プロジェクトの `id`, `name`, `description` を JSON 配列で出力する。
+
+**出力例:**
+
+```json
+[
+  {
+    "id": "myproj",
+    "name": "myproj",
+    "description": "プロジェクトの説明"
+  }
+]
+```
+
 ### help — ヘルプ表示
 
 ```bash
