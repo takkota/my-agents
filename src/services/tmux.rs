@@ -148,6 +148,16 @@ impl TmuxService {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    pub fn send_keys(&self, session: &str, text: &str) -> AppResult<()> {
+        let status = Self::tmux_cmd()
+            .args(["send-keys", "-t", session, text, "Enter"])
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("Failed to send keys to tmux session: {}", session);
+        }
+        Ok(())
+    }
+
     pub fn launch_agent(&self, session: &str, cli: &AgentCli, initial_prompt_file: Option<&Path>) -> AppResult<()> {
         if let Some(cmd) = cli.launch_command() {
             let full_cmd = if let Some(prompt_file) = initial_prompt_file {
