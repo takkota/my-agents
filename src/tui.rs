@@ -36,5 +36,10 @@ pub fn exit() -> AppResult<()> {
 }
 
 pub fn resume() -> AppResult<Tui> {
+    // Explicitly disable mouse capture before re-entering TUI.
+    // tmux with `mouse on` enables mouse capture in the terminal, and this
+    // state can persist after detaching. Without clearing it, normal text
+    // selection (drag-to-copy) in the host terminal stops working.
+    let _ = execute!(io::stdout(), DisableMouseCapture);
     enter()
 }
