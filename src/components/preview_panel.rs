@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[derive(Clone)]
 pub struct ProjectInfo {
     pub name: String,
+    pub project_dir: PathBuf,
     pub repos: Vec<RepoInfo>,
     pub worktree_copy_files: Vec<String>,
     pub task_stats: TaskStats,
@@ -183,6 +184,22 @@ impl PreviewPanel {
         };
 
         let mut lines: Vec<Line> = Vec::new();
+
+        // Project directory
+        lines.push(Line::from(vec![Span::styled(
+            " Directory ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                info.project_dir.display().to_string(),
+                Style::default().fg(Color::White),
+            ),
+        ]));
+        lines.push(Line::from(""));
 
         // Repositories section
         lines.push(Line::from(vec![Span::styled(
