@@ -699,8 +699,10 @@ impl App {
                 link,
             } => {
                 self.update_task(&project_id, &task_id, |task| {
-                    task.links.push(link);
-                    task.updated_at = Utc::now();
+                    if !task.links.iter().any(|l| l.url == link.url) {
+                        task.links.push(link);
+                        task.updated_at = Utc::now();
+                    }
                 })?;
                 self.active_modal = None;
                 self.reload_data()?;
@@ -825,8 +827,10 @@ impl App {
                             } => {
                                 let link = TaskLink { url, display_name: None };
                                 let _ = self.update_task(&project_id, &task_id, |task| {
-                                    task.links.push(link);
-                                    task.updated_at = Utc::now();
+                                    if !task.links.iter().any(|l| l.url == link.url) {
+                                        task.links.push(link);
+                                        task.updated_at = Utc::now();
+                                    }
                                 });
                                 data_changed = true;
                             }
