@@ -408,6 +408,23 @@ cmd_link() {
     echo "$json"
 }
 
+cmd_projects() {
+    local first=true
+    echo "["
+    for project_dir in "${PROJECTS_DIR}"/*/; do
+        [ -d "$project_dir" ] || continue
+        local project_file="${project_dir}project.json"
+        [ -f "$project_file" ] || continue
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo ","
+        fi
+        jq '{id: .id, name: .name, description: .description}' "$project_file"
+    done
+    echo "]"
+}
+
 cmd_help() {
     cat <<'HELP'
 ma-task: Task management CLI for my-agents
@@ -418,6 +435,7 @@ Commands:
   current                          Show current task (auto-detected from CWD)
   get <task-id>                    Get task details (JSON)
   list [--project <id>]            List tasks in project (JSON array)
+  projects                         List all projects (JSON array)
   create --name <n> [options]      Create a new task
   update <task-id> [options]       Update task fields
   status <task-id> <status>        Change task status
@@ -449,13 +467,14 @@ cmd="${1:-help}"
 shift || true
 
 case "$cmd" in
-    current) cmd_current "$@" ;;
-    get)     cmd_get "$@" ;;
-    list)    cmd_list "$@" ;;
-    create)  cmd_create "$@" ;;
-    update)  cmd_update "$@" ;;
-    status)  cmd_status "$@" ;;
-    link)    cmd_link "$@" ;;
+    current)  cmd_current "$@" ;;
+    get)      cmd_get "$@" ;;
+    list)     cmd_list "$@" ;;
+    projects) cmd_projects "$@" ;;
+    create)   cmd_create "$@" ;;
+    update)   cmd_update "$@" ;;
+    status)   cmd_status "$@" ;;
+    link)     cmd_link "$@" ;;
     help|--help|-h) cmd_help ;;
     *) die "unknown command: $cmd (run 'ma-task help')" ;;
 esac
