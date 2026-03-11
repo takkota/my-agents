@@ -51,6 +51,7 @@ ma-task create --name <name> [options]
 | `--agent` | — | No | `None` | `Claude` `Codex` `None` |
 | `--notes` | — | No | `null` | メモ |
 | `--prompt` | — | No | `null` | エージェントへの初期プロンプト |
+| `--link` | — | No | — | リンク URL (複数回指定可) |
 | `--run` | — | No | `false` | 作成後に worktree・tmux セッション・エージェント起動を即時実行 |
 
 **出力:** 作成された task.json (JSON)
@@ -63,6 +64,11 @@ ma-task create --name <name> [options]
 ```bash
 # 基本的なタスク作成
 ma-task create --project myproj --name "Fix login bug"
+
+# リンク付きタスク作成
+ma-task create --project myproj --name "Fix login bug" \
+  --link "https://github.com/org/repo/issues/42" \
+  --link "https://github.com/org/repo/pull/43"
 
 # エージェント付きタスク作成 + 即時実行
 ma-task create \
