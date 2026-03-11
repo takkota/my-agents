@@ -46,13 +46,14 @@ When creating agent sessions, `write_agent_config_files()` generates:
 - **CLAUDE.md** / **AGENTS.md** — `@repo/` references to upstream config + skill trigger description
 - **Claude Code skill** — `.claude/skills/task-management/SKILL.md` (with `allowed-tools: Bash`)
 - **Codex skill** — `.agents/skills/task-management/SKILL.md` (standard Agent Skills format)
-- **Claude hooks** — `.claude/settings.json` with PreToolUse hook for auto status tracking
+- **Claude hooks** — `.claude/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks for auto status tracking and PR link discovery
+- **Codex notify** — writes `.codex/config.toml` in the task directory with `notify` pointing to `ma-codex-notify` (project-level config, no global config modification)
 - Both skills share the same body via `skill_body()` helper, differing only in frontmatter
 
 ### Services (services/)
 - `TmuxService` — create/kill/attach sessions, capture pane content, launch agent CLI
 - `WorktreeService` — create/remove git worktrees per task, branch naming: `task/{short_id}/{repo_name}`
-- `AgentMonitor` — periodically checks tmux pane content to detect agent input-wait state, auto-updates task status
+- `AgentMonitor` — periodically checks marker files to detect status transitions, auto-updates task status
 - `PrMonitor` — background thread checks GitHub PR merge status via `gh` CLI, auto-completes tasks
 - `git_finder` — discovers git repos using `fd` (fallback: `find`)
 
@@ -71,7 +72,9 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - Task IDs are first 8 chars of UUID v4
 - tmux session names follow pattern: `ma-{project_id}-{task_id_prefix}`
 - Worktree branches: `task/{task_id_6char}/{repo_name}`
-- `.manual_todo` file in task dir prevents agent monitor from flipping Todo to InProgress until agent uses tools
+- `.prompt_submitted` marker in task dir — created by `UserPromptSubmit` hook (Claude) or notify script (Codex) when user sends a prompt; triggers Todo/Completed/ActionRequired → InProgress
+- `.agent_stopped` marker in task dir — created by `Stop` hook (Claude) or notify script (Codex) when agent finishes responding; triggers InProgress → ActionRequired
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
 - `ma-task` CLI (bash script in `~/.my-agents/bin/`) lets agents manage tasks via JSON commands
+- `ma-codex-notify` script (bash in `~/.my-agents/bin/`) handles Codex `notify` events for automatic status tracking
 - Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex

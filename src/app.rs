@@ -665,13 +665,14 @@ impl App {
                 project_id,
                 status,
             } => {
-                // Clear .prompt_submitted marker when manually changing status,
+                // Clear marker files when manually changing status,
                 // so the monitor won't override the manual change.
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
-                        if task.agent_cli == AgentCli::Claude {
+                        if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Codex) {
                             let task_dir = self.store.task_dir(&project_id, &task_id);
                             let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                            let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));
                         }
                     }
                 }
@@ -803,12 +804,16 @@ impl App {
                                     task.status = status;
                                     task.updated_at = Utc::now();
                                 });
-                                // Only clear the .prompt_submitted marker after
-                                // the status change has been persisted successfully,
-                                // so it can be retried on the next tick if save fails.
+                                // Only clear the marker after the status change
+                                // has been persisted, so it can be retried on the
+                                // next tick if save fails.
                                 if result.is_ok() {
                                     let task_dir = self.store.task_dir(&project_id, &task_id);
-                                    let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                                    if status == Status::InProgress {
+                                        let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                                    } else if status == Status::ActionRequired {
+                                        let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));
+                                    }
                                 }
                                 data_changed = true;
                             }
@@ -843,10 +848,11 @@ impl App {
                             task_id,
                             project_id,
                         } => {
-                            // Clear .prompt_submitted so the monitor won't
+                            // Clear markers so the monitor won't
                             // immediately reopen the task after auto-completing.
                             let task_dir = self.store.task_dir(&project_id, &task_id);
                             let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                            let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));
                             let _ = self.update_task(&project_id, &task_id, |task| {
                                 task.status = Status::Completed;
                                 task.reopened_at = None;

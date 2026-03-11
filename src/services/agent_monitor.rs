@@ -19,6 +19,10 @@ const PR_LINKS_FILE: &str = ".pr_links";
 /// Signals that the user is actively working in the session.
 const PROMPT_SUBMITTED_FILE: &str = ".prompt_submitted";
 
+/// Marker file created by Stop hook (Claude) or notify script (Codex) when
+/// the agent finishes responding and is waiting for user input.
+const AGENT_STOPPED_FILE: &str = ".agent_stopped";
+
 impl AgentMonitor {
     pub fn new(store: FsStore, tmux: TmuxService) -> Self {
         Self { store, tmux }
@@ -29,30 +33,38 @@ impl AgentMonitor {
         let tasks = self.store.list_all_tasks().unwrap_or_default();
 
         for task in &tasks {
-            if task.agent_cli != AgentCli::Claude {
-                continue;
+            match task.agent_cli {
+                AgentCli::Claude | AgentCli::Codex => {
+                    if let Some(e) = self.check_agent_task(&task.id, &task.project_id, &task.status, &task.tmux_session) {
+                        events.push(e);
+                    }
+                }
+                AgentCli::None => {}
             }
 
-            if let Some(e) = self.check_claude_task(&task.id, &task.project_id, &task.status, &task.tmux_session) {
-                events.push(e);
+            // PR link discovery is Claude-only (uses PostToolUse hook)
+            if task.agent_cli == AgentCli::Claude {
+                let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
+                events.extend(link_events);
             }
-
-            let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
-            events.extend(link_events);
         }
 
         events
     }
 
-    /// Claude Code: check task status based on tmux session and marker files.
-    /// - (Todo|Completed) + `.prompt_submitted` present + session alive → InProgress
+    /// Check task status based on tmux session and marker files.
+    ///
+    /// Transitions:
+    /// - (Todo|Completed|ActionRequired) + `.prompt_submitted` + session alive → InProgress
+    /// - InProgress + `.agent_stopped` + session alive → ActionRequired
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
     ///
-    /// The `.prompt_submitted` marker is created by the UserPromptSubmit hook
-    /// when the user sends a prompt, providing evidence of active work.
-    ///
-    /// Note: InProgress → ActionRequired transitions are handled by agent skills, not the monitor.
-    fn check_claude_task(
+    /// Marker files:
+    /// - `.prompt_submitted` — created by UserPromptSubmit hook (Claude) or
+    ///   notify script (Codex) when the user sends a prompt.
+    /// - `.agent_stopped` — created by Stop hook (Claude) or notify script
+    ///   (Codex) when the agent finishes and is waiting for user input.
+    fn check_agent_task(
         &self,
         task_id: &str,
         project_id: &str,
@@ -61,18 +73,15 @@ impl AgentMonitor {
     ) -> Option<MonitorEvent> {
         let task_dir = self.store.task_dir(project_id, task_id);
         let prompt_submitted_path = task_dir.join(PROMPT_SUBMITTED_FILE);
+        let agent_stopped_path = task_dir.join(AGENT_STOPPED_FILE);
         let session_alive = tmux_session
             .as_deref()
             .is_some_and(|s| self.tmux.session_exists(s));
 
-        // For Todo and Completed tasks, transition to InProgress only when
-        // the UserPromptSubmit hook has created the `.prompt_submitted` marker.
-        if *current_status == Status::Todo || *current_status == Status::Completed {
+        // Priority 1: `.prompt_submitted` transitions idle states to InProgress.
+        // ActionRequired is included so that re-engaging the agent moves it back.
+        if matches!(current_status, Status::Todo | Status::Completed | Status::ActionRequired) {
             if session_alive && prompt_submitted_path.exists() {
-                // User submitted a prompt — agent is actively working.
-                // The marker file is NOT removed here; the caller (App)
-                // removes it after successfully persisting the status change
-                // to avoid losing the signal on save failure.
                 return Some(MonitorEvent::StatusChanged {
                     task_id: task_id.to_string(),
                     project_id: project_id.to_string(),
@@ -87,7 +96,15 @@ impl AgentMonitor {
                     status: Status::Blocked,
                 });
             }
-            return None;
+        }
+
+        // Priority 2: `.agent_stopped` transitions InProgress to ActionRequired.
+        if *current_status == Status::InProgress && session_alive && agent_stopped_path.exists() {
+            return Some(MonitorEvent::StatusChanged {
+                task_id: task_id.to_string(),
+                project_id: project_id.to_string(),
+                status: Status::ActionRequired,
+            });
         }
 
         None

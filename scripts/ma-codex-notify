@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# ma-codex-notify: Notification handler for Codex CLI's `notify` mechanism.
+# Receives a JSON argument from Codex with event data including `cwd`.
+# Creates marker files in my-agents task directories to signal status transitions.
+#
+# Codex config (~/.codex/config.toml):
+#   notify = ["~/.my-agents/bin/ma-codex-notify"]
+
+# Don't use set -e: we want to handle failures gracefully and always exit 0
+# to avoid breaking Codex's notification pipeline.
+
+DATA_DIR="${MY_AGENTS_DATA_DIR:-${HOME}/.my-agents}"
+
+# Parse JSON argument
+json="${1:-}"
+[ -z "$json" ] && exit 0
+
+# Extract event type and cwd from JSON.
+# Try jq first, fall back to parameter expansion (no external deps).
+extract_json_string() {
+    local key="$1"
+    if command -v jq >/dev/null 2>&1; then
+        echo "$json" | jq -r ".$key // empty" 2>/dev/null || echo ""
+    else
+        # Simple extraction: find "key":"value" pattern.
+        # Handles common cases; won't work with escaped quotes in values.
+        local pattern="\"$key\"[[:space:]]*:[[:space:]]*\"([^\"]*)\""
+        if [[ "$json" =~ $pattern ]]; then
+            echo "${BASH_REMATCH[1]}"
+        fi
+    fi
+}
+
+event_type=$(extract_json_string "type")
+cwd=$(extract_json_string "cwd")
+
+[ -z "$cwd" ] && exit 0
+
+# Only handle agent-turn-complete events
+[ "$event_type" = "agent-turn-complete" ] || exit 0
+
+# Detect if cwd is inside a my-agents task directory.
+# Task dirs are: ~/.my-agents/projects/<project>/tasks/<task>/
+# The agent may be in a subdirectory (e.g., a worktree), so walk up.
+task_dir=""
+check_dir="$cwd"
+while [ "$check_dir" != "/" ] && [ -n "$check_dir" ]; do
+    if [ -f "$check_dir/task.json" ]; then
+        task_dir="$check_dir"
+        break
+    fi
+    check_dir=$(dirname "$check_dir")
+done
+
+[ -z "$task_dir" ] && exit 0
+
+# Verify this is actually under our data directory
+case "$task_dir" in
+    "$DATA_DIR"/projects/*/tasks/*)
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+# agent-turn-complete means the agent finished a turn:
+# 1. The user must have submitted a prompt (→ .prompt_submitted)
+# 2. The agent finished and is now waiting (→ .agent_stopped)
+# The monitor processes .prompt_submitted first (→ InProgress),
+# then .agent_stopped on the next tick (→ ActionRequired).
+touch "$task_dir/.prompt_submitted"
+touch "$task_dir/.agent_stopped"
