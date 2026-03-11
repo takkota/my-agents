@@ -395,6 +395,11 @@ cmd_link() {
 
     local json
     json="$(read_task "$project_id" "$task_id")"
+    # Skip if the same URL already exists
+    if echo "$json" | jq -e --arg url "$url" '.links | any(.url == $url)' >/dev/null 2>&1; then
+        echo "$json"
+        return 0
+    fi
     if [ -n "$display_name" ]; then
         json="$(echo "$json" | jq --arg url "$url" --arg dn "$display_name" \
             --arg now "$(now_iso)" \
