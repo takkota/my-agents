@@ -285,6 +285,7 @@ impl FsStore {
         // Write Claude Code hooks config and skill for Claude agent tasks
         if task.agent_cli == crate::domain::task::AgentCli::Claude {
             self.write_claude_hooks(task)?;
+            self.copy_claude_settings_local(task)?;
             self.write_claude_skill(task)?;
         }
 
@@ -559,6 +560,52 @@ impl FsStore {
             claude_dir.join("settings.json"),
             serde_json::to_string_pretty(&settings)?,
         )?;
+
+        Ok(())
+    }
+
+    /// Copy `.claude/settings.local.json` from the project directory to the
+    /// task directory so that project-local settings (e.g. plugin
+    /// configurations not committed to version control) are inherited.
+    fn copy_claude_settings_local(&self, task: &Task) -> AppResult<()> {
+        let project_local = self
+            .project_dir(&task.project_id)
+            .join(".claude")
+            .join("settings.local.json");
+        if !project_local.exists() {
+            return Ok(());
+        }
+
+        let task_claude_dir = self
+            .task_dir(&task.project_id, &task.id)
+            .join(".claude");
+        fs::create_dir_all(&task_claude_dir)?;
+
+        match fs::read_to_string(&project_local) {
+            Ok(content) => {
+                // Validate it is proper JSON before copying
+                match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(_) => {
+                        fs::write(task_claude_dir.join("settings.local.json"), content)?;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: failed to parse project settings.local.json {}: {}",
+                            project_local.display(),
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "Warning: failed to read project settings.local.json {}: {}",
+                    project_local.display(),
+                    e
+                );
+            }
+            _ => {}
+        }
 
         Ok(())
     }
