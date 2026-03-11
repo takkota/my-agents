@@ -13,6 +13,9 @@ use app::{App, UpdateResult};
 use config::Config;
 use error::AppResult;
 use event::{Event, EventHandler};
+use services::task_setup::{self, TaskSetupInput};
+use services::tmux::TmuxService;
+use storage::FsStore;
 
 fn check_dependencies() {
     use std::process::Command;
@@ -54,8 +57,106 @@ fn check_dependencies() {
     }
 }
 
+fn cmd_setup_task(args: &[String]) -> AppResult<()> {
+    let mut project_id = None;
+    let mut task_id = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--project" | "-p" => {
+                project_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--task" | "-t" => {
+                task_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--help" | "-h" => {
+                eprintln!("Usage: my-agents setup-task --project <id> --task <id>");
+                eprintln!();
+                eprintln!("Set up worktree, agent config files, tmux session, and launch agent for an existing task.");
+                std::process::exit(0);
+            }
+            other => {
+                anyhow::bail!("Unknown option: {}. Usage: my-agents setup-task --project <id> --task <id>", other);
+            }
+        }
+    }
+
+    let project_id = project_id.ok_or_else(|| anyhow::anyhow!("--project is required"))?;
+    let task_id = task_id.ok_or_else(|| anyhow::anyhow!("--task is required"))?;
+
+    // Check required dependencies for setup-task
+    if !TmuxService::is_available() {
+        anyhow::bail!("tmux is required for setup-task but not found in PATH");
+    }
+
+    let config = Config::load()?;
+    let store = FsStore::new(&config)?;
+
+    let project = store
+        .list_projects()?
+        .into_iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| anyhow::anyhow!("Project not found: {}", project_id))?;
+
+    let task = store
+        .list_tasks(&project_id)?
+        .into_iter()
+        .find(|t| t.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("Task not found: {}", task_id))?;
+
+    // Guard against re-running setup on a task that already has worktrees or a session
+    if !task.worktrees.is_empty() || task.tmux_session.is_some() {
+        anyhow::bail!(
+            "Task {} already has worktrees or a tmux session. setup-task is intended for newly created tasks only.",
+            task_id
+        );
+    }
+
+    let task_dir = store.task_dir(&project_id, &task_id);
+
+    let tmux = TmuxService::new();
+    let output = task_setup::run_task_setup(
+        TaskSetupInput {
+            task: &task,
+            project: &project,
+            task_dir: &task_dir,
+        },
+        &store,
+        &tmux,
+    );
+
+    // Print result as JSON
+    let worktree_paths: Vec<String> = output
+        .worktrees
+        .iter()
+        .map(|w| w.worktree_path.display().to_string())
+        .collect();
+    let result = serde_json::json!({
+        "task_id": task_id,
+        "project_id": project_id,
+        "tmux_session": output.tmux_session,
+        "worktrees": worktree_paths,
+    });
+    println!("{}", serde_json::to_string_pretty(&result)?);
+
+    if let Some(error) = output.error {
+        eprintln!("Warning: {}", error);
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> AppResult<()> {
+    // Dispatch subcommands before TUI initialization
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("setup-task") {
+        return cmd_setup_task(&args[2..]);
+    }
+
     // Check required external dependencies
     check_dependencies();
 

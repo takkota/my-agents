@@ -20,6 +20,7 @@ use crate::error::AppResult;
 use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
 use crate::services::pr_monitor::PrMonitor;
+use crate::services::task_setup::{self, TaskSetupInput};
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
 use crate::storage::FsStore;
@@ -63,8 +64,6 @@ pub struct App {
 
     // Background task setup receiver
     task_setup_rx: Vec<mpsc::Receiver<TaskSetupResult>>,
-    // Background error messages (e.g. from initial instructions sending)
-    bg_error_rx: Vec<mpsc::Receiver<String>>,
 
     // Monitors
     agent_monitor: AgentMonitor,
@@ -136,7 +135,6 @@ impl App {
             repo_scan_rx: Some(rx),
             active_sessions: HashSet::new(),
             task_setup_rx: Vec::new(),
-            bg_error_rx: Vec::new(),
             agent_monitor,
             pr_monitor,
             tick_count: 0,
@@ -206,22 +204,6 @@ impl App {
             self.refresh_preview_task_info();
         }
 
-        // Poll background error messages (e.g. from initial instructions sending)
-        let mut i = 0;
-        while i < self.bg_error_rx.len() {
-            match self.bg_error_rx[i].try_recv() {
-                Ok(error) => {
-                    self.error_message = Some(error);
-                    self.bg_error_rx.swap_remove(i);
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    i += 1;
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.bg_error_rx.swap_remove(i);
-                }
-            }
-        }
     }
 
     /// Check if the background repo scan has completed and store results.
@@ -1039,133 +1021,31 @@ impl App {
 
         // Spawn background thread for heavy operations (worktree, tmux, config files)
         let store = self.store.clone();
-        let worktree_svc = WorktreeService::new();
         let tmux = TmuxService::new();
         let (tx, rx) = mpsc::channel();
-        let (err_tx, err_rx) = mpsc::channel();
         let bg_task = task.clone();
         let bg_task_dir = task_dir.clone();
-        let bg_initial_instructions = initial_instructions;
 
         std::thread::spawn(move || {
-            let repos: Vec<(String, std::path::PathBuf)> = project
-                .repos
-                .iter()
-                .map(|r| (r.name.clone(), r.path.clone()))
-                .collect();
-
-            // Create worktrees
-            let worktrees = if !repos.is_empty() {
-                match worktree_svc.create_worktrees_for_task(&bg_task_dir, &bg_task.id, &repos) {
-                    Ok(wts) => {
-                        if !project.worktree_copy_files.is_empty() {
-                            for wt in &wts {
-                                let _ = WorktreeService::copy_files_to_worktree(
-                                    &wt.upstream_path,
-                                    &wt.worktree_path,
-                                    &project.worktree_copy_files,
-                                );
-                            }
-                        }
-                        wts
-                    }
-                    Err(_) => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
-
-            // Build initial prompt file if instructions were provided
-            let prompt_file = if let Some(instructions) = bg_initial_instructions {
-                if bg_task.agent_cli != AgentCli::None {
-                    let mut prompt = instructions;
-                    let link_urls: Vec<String> = bg_task.links.iter().map(|l| l.url.clone()).collect();
-                    if !link_urls.is_empty() {
-                        prompt.push_str("\n\nLinks:\n");
-                        for url in &link_urls {
-                            prompt.push_str(&format!("- {}\n", url));
-                        }
-                    }
-                    let path = bg_task_dir.join(".initial_prompt");
-                    match std::fs::write(&path, &prompt) {
-                        Ok(()) => Some(path),
-                        Err(e) => {
-                            let _ = err_tx.send(format!("Failed to write initial prompt file: {}", e));
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            // Write agent config files BEFORE launching the agent so that
-            // hooks (settings.json) are in place when the agent starts.
-            let mut updated_task = bg_task;
-            updated_task.worktrees = worktrees.clone();
-            let config_error = match store.save_task(&updated_task).and_then(|_| store.write_agent_config_files(&updated_task)) {
-                Ok(()) => None,
-                Err(e) => Some(format!("{}", e)),
-            };
-
-            // Create tmux session
-            let session_name = TmuxService::session_name(&updated_task.project_id, &updated_task.id);
-            let tmux_session = if TmuxService::is_available() {
-                match tmux.create_session(&session_name, &bg_task_dir) {
-                    Ok(()) => {
-                        if updated_task.agent_cli != AgentCli::None {
-                            let _ = tmux.launch_agent(
-                                &session_name,
-                                &updated_task.agent_cli,
-                                prompt_file.as_deref(),
-                            );
-                            // If an initial prompt was provided, create the
-                            // .prompt_submitted marker so the monitor can
-                            // transition Todo → InProgress even if the
-                            // UserPromptSubmit hook doesn't fire for piped prompts.
-                            if prompt_file.is_some() {
-                                let _ = std::fs::write(
-                                    bg_task_dir.join(".prompt_submitted"),
-                                    "",
-                                );
-                            }
-                        }
-                        Some(session_name)
-                    }
-                    Err(_) => None,
-                }
-            } else {
-                None
-            };
-
-            // Update task with tmux session info
-            updated_task.tmux_session = tmux_session.clone();
-            let error = match store.save_task(&updated_task) {
-                Ok(()) => config_error,
-                Err(e) => {
-                    let mut msg = config_error.unwrap_or_default();
-                    if !msg.is_empty() {
-                        msg.push_str("; ");
-                    }
-                    msg.push_str(&format!("{}", e));
-                    Some(msg)
-                }
-            };
-
-            // Send TaskSetupResult immediately so the UI updates
+            let output = task_setup::run_task_setup(
+                TaskSetupInput {
+                    task: &bg_task,
+                    project: &project,
+                    task_dir: &bg_task_dir,
+                },
+                &store,
+                &tmux,
+            );
             let _ = tx.send(TaskSetupResult {
-                task_id: updated_task.id.clone(),
-                project_id: updated_task.project_id.clone(),
-                worktrees,
-                tmux_session: tmux_session.clone(),
-                error,
+                task_id: bg_task.id.clone(),
+                project_id: bg_task.project_id.clone(),
+                worktrees: output.worktrees,
+                tmux_session: output.tmux_session,
+                error: output.error,
             });
         });
 
         self.task_setup_rx.push(rx);
-        self.bg_error_rx.push(err_rx);
 
         Ok(task_id)
     }

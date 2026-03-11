@@ -171,7 +171,7 @@ cmd_list() {
 }
 
 cmd_create() {
-    local project_id="" name="" priority="P3" agent_cli="None" notes=""
+    local project_id="" name="" priority="P3" agent_cli="None" notes="" prompt="" run=false
     while [ $# -gt 0 ]; do
         case "$1" in
             --project|-p) project_id="${2:?--project requires value}"; shift 2 ;;
@@ -179,6 +179,8 @@ cmd_create() {
             --priority) priority="${2:?--priority requires value}"; shift 2 ;;
             --agent) agent_cli="${2:?--agent requires value}"; shift 2 ;;
             --notes) notes="${2:?--notes requires value}"; shift 2 ;;
+            --prompt) prompt="${2:?--prompt requires value}"; shift 2 ;;
+            --run) run=true; shift ;;
             *) die "unknown option: $1" ;;
         esac
     done
@@ -221,6 +223,9 @@ cmd_create() {
     local notes_json="null"
     [ -z "$notes" ] || notes_json="$(echo "$notes" | jq -Rs .)"
 
+    local prompt_json="null"
+    [ -z "$prompt" ] || prompt_json="$(echo "$prompt" | jq -Rs .)"
+
     local json
     json="$(jq -n \
         --arg id "$task_id" \
@@ -229,6 +234,7 @@ cmd_create() {
         --arg priority "$priority" \
         --arg agent "$agent_cli" \
         --argjson notes "$notes_json" \
+        --argjson prompt "$prompt_json" \
         --arg now "$now" \
         '{
             id: $id,
@@ -240,6 +246,7 @@ cmd_create() {
             worktrees: [],
             links: [],
             notes: $notes,
+            initial_instructions: $prompt,
             tmux_session: null,
             created_at: $now,
             updated_at: $now
@@ -247,6 +254,18 @@ cmd_create() {
 
     write_task "$project_id" "$task_id" "$json"
     echo "$json"
+
+    if [ "$run" = true ]; then
+        local bin_path=""
+        if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
+            bin_path="${MY_AGENTS_BIN}"
+        elif command -v my-agents >/dev/null 2>&1; then
+            bin_path="my-agents"
+        else
+            die "my-agents binary not found in PATH; install with 'cargo install --path .' or set MY_AGENTS_BIN"
+        fi
+        exec "$bin_path" setup-task --project "$project_id" --task "$task_id"
+    fi
 }
 
 cmd_update() {
@@ -411,6 +430,8 @@ Create options:
   --priority <P1-P5>    Priority (default: P3)
   --agent <cli>         Agent CLI: Claude, Codex, None (default: None)
   --notes <text>        Initial notes
+  --prompt <text>       Initial instructions for the agent
+  --run                 Set up worktree, tmux session, and launch agent immediately
 
 Update options:
   --name, -n <name>     New task name
