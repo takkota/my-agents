@@ -31,8 +31,17 @@ gen_id() {
     fi
 }
 
+validate_id() {
+    local id="$1" label="$2"
+    if [[ "$id" == *"/"* ]] || [[ "$id" == *"\\"* ]] || [[ "$id" == *".."* ]] || [[ -z "$id" ]]; then
+        die "invalid ${label}: ${id}"
+    fi
+}
+
 task_json_path() {
     local project_id="$1" task_id="$2"
+    validate_id "$project_id" "project_id"
+    validate_id "$task_id" "task_id"
     echo "${PROJECTS_DIR}/${project_id}/tasks/${task_id}/task.json"
 }
 

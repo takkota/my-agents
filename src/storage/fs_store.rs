@@ -72,6 +72,7 @@ impl FsStore {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
+                    // 0o755: owner rwx, group/other rx — required for executable scripts
                     fs::set_permissions(&dest, fs::Permissions::from_mode(0o755))?;
                 }
             }
@@ -98,6 +99,7 @@ impl FsStore {
         !id.is_empty()
             && !id.contains('/')
             && !id.contains('\\')
+            && !id.contains('\0')
             && id != "."
             && id != ".."
             && !id.contains("..")
@@ -547,7 +549,10 @@ impl FsStore {
                 Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                     Ok(project_settings) => {
                         if let Some(project_obj) = project_settings.as_object() {
-                            let settings_obj = settings.as_object_mut().unwrap();
+                            let Some(settings_obj) = settings.as_object_mut() else {
+                                // settings should always be an object since we constructed it above
+                                return Ok(());
+                            };
                             for key in ALLOWED_PROJECT_KEYS {
                                 if let Some(value) = project_obj.get(*key) {
                                     settings_obj.insert((*key).to_string(), value.clone());
