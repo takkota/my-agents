@@ -18,6 +18,7 @@ pub enum Action {
     FilterActionRequired,
     OpenSort,
     OpenConfirmDelete,
+    OpenSettings,
     CloseModal,
     /// Close modal and apply changes (for filter/sort)
     ApplyAndCloseModal,
@@ -78,6 +79,12 @@ pub enum Action {
     // Link actions
     OpenLinkInBrowser {
         url: String,
+    },
+
+    // Settings
+    SaveSettings {
+        pr_prompt: String,
+        review_prompt: String,
     },
 
     // Agent instructions

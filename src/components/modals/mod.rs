@@ -7,6 +7,7 @@ pub mod select_link;
 pub mod edit_item;
 pub mod filter;
 pub mod sort;
+pub mod settings;
 pub mod input;
 
 use crate::action::Action;

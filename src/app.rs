@@ -7,6 +7,7 @@ use crate::components::modals::filter::FilterModal;
 use crate::components::modals::select_link::SelectLinkModal;
 use crate::components::modals::set_link::SetLinkModal;
 use crate::components::modals::set_status::SetStatusModal;
+use crate::components::modals::settings::SettingsModal;
 use crate::components::modals::sort::SortModal;
 use crate::components::modals::{centered_rect, centered_rect_with_max, Modal};
 use crate::components::preview_panel::PreviewPanel;
@@ -100,6 +101,7 @@ pub enum ModalKind {
     Filter(FilterModal),
     Sort(SortModal),
     ConfirmDelete(ConfirmDeleteModal),
+    Settings(SettingsModal),
 }
 
 impl App {
@@ -276,6 +278,7 @@ impl App {
                 ModalKind::Filter(m) => m.handle_paste(text),
                 ModalKind::Sort(m) => m.handle_paste(text),
                 ModalKind::ConfirmDelete(m) => m.handle_paste(text),
+                ModalKind::Settings(m) => m.handle_paste(text),
             }
         }
     }
@@ -316,6 +319,7 @@ impl App {
                 ModalKind::Filter(m) => m.handle_key(key),
                 ModalKind::Sort(m) => m.handle_key(key),
                 ModalKind::ConfirmDelete(m) => m.handle_key(key),
+                ModalKind::Settings(m) => m.handle_key(key),
             };
         }
 
@@ -333,6 +337,9 @@ impl App {
                 if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('S') {
                     return Ok(Some(Action::OpenSetStatus));
                 }
+            }
+            KeyCode::Char('C') => {
+                return Ok(Some(Action::OpenSettings));
             }
             KeyCode::Char('P') => {
                 if let Some(TreeItem::Task { id, project_id, .. }) =
@@ -566,6 +573,28 @@ impl App {
                 }
             }
 
+            Action::OpenSettings => {
+                self.active_modal = Some(ModalKind::Settings(SettingsModal::new(&self.config)));
+            }
+
+            Action::SaveSettings {
+                pr_prompt,
+                review_prompt,
+            } => {
+                let mut new_config = self.config.clone();
+                new_config.pr_prompt = pr_prompt;
+                new_config.review_prompt = review_prompt;
+                match new_config.save() {
+                    Ok(()) => {
+                        self.config = new_config;
+                        self.active_modal = None;
+                    }
+                    Err(e) => {
+                        self.error_message = Some(format!("Failed to save settings: {}", e));
+                    }
+                }
+            }
+
             // Close modal without applying (Esc = cancel)
             Action::CloseModal => {
                 self.active_modal = None;
@@ -758,8 +787,7 @@ impl App {
             Action::SendPrInstruction { task_id, project_id } => {
                 let session_name = TmuxService::session_name(&project_id, &task_id);
                 if self.tmux.session_exists(&session_name) {
-                    let instruction = "CLAUDE.mdの指示に従い、今回の変更内容に対するPull Requestを作成してください。";
-                    self.tmux.send_keys(&session_name, instruction)?;
+                    self.tmux.send_keys(&session_name, &self.config.pr_prompt)?;
                 } else {
                     self.error_message = Some("No active tmux session for this task".to_string());
                 }
@@ -799,8 +827,7 @@ impl App {
                                 TmuxService::session_name(&project_id, &task_id)
                             });
                         if self.tmux.session_exists(&session_name) {
-                            let review_prompt = "/codex exec --model gpt-5.3-codex --reasoning high \"このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。\"";
-                            if let Err(e) = self.tmux.send_text(&session_name, review_prompt)
+                            if let Err(e) = self.tmux.send_text(&session_name, &self.config.review_prompt)
                             {
                                 self.error_message = Some(format!(
                                     "Failed to send review instruction: {}",
@@ -1362,6 +1389,7 @@ impl App {
                 ModalKind::Filter(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::Sort(m) => m.render(frame, centered_rect(40, 30, area)),
                 ModalKind::ConfirmDelete(m) => m.render(frame, centered_rect(50, 35, area)),
+                ModalKind::Settings(m) => m.render(frame, area),
             }
         }
     }
