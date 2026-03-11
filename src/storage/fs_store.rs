@@ -228,7 +228,7 @@ impl FsStore {
         force_remove_dir_all(&dir)
     }
 
-    pub fn write_agent_config_files(&self, task: &Task) -> AppResult<()> {
+    pub fn write_agent_config_files(&self, task: &Task, pr_prompt: &str) -> AppResult<()> {
         let dir = self.task_dir(&task.project_id, &task.id);
 
         // Write CLAUDE.md with references and skill trigger
@@ -256,13 +256,11 @@ impl FsStore {
                  update status, add links, or create new tasks."
                     .to_string(),
             );
-            claude_lines.push(String::new());
-            claude_lines.push("## Pull Request".to_string());
-            claude_lines.push(
-                "If any code changes were made during this task, you MUST create a Pull Request \
-                 before marking the task as completed."
-                    .to_string(),
-            );
+            if !pr_prompt.trim().is_empty() {
+                claude_lines.push(String::new());
+                claude_lines.push("## Pull Request".to_string());
+                claude_lines.push(pr_prompt.to_string());
+            }
         }
         if !claude_lines.is_empty() {
             fs::write(dir.join("CLAUDE.md"), claude_lines.join("\n") + "\n")?;
@@ -293,13 +291,11 @@ impl FsStore {
                  update status, add links, or create new tasks."
                     .to_string(),
             );
-            agents_lines.push(String::new());
-            agents_lines.push("## Pull Request".to_string());
-            agents_lines.push(
-                "If any code changes were made during this task, you MUST create a Pull Request \
-                 before marking the task as completed."
-                    .to_string(),
-            );
+            if !pr_prompt.trim().is_empty() {
+                agents_lines.push(String::new());
+                agents_lines.push("## Pull Request".to_string());
+                agents_lines.push(pr_prompt.to_string());
+            }
         }
         if !agents_lines.is_empty() {
             fs::write(dir.join("AGENTS.md"), agents_lines.join("\n") + "\n")?;
