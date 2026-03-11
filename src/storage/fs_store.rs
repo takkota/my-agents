@@ -285,6 +285,7 @@ impl FsStore {
         // Write Claude Code hooks config and skill for Claude agent tasks
         if task.agent_cli == crate::domain::task::AgentCli::Claude {
             self.write_claude_hooks(task)?;
+            self.copy_claude_settings_local(task)?;
             self.write_claude_skill(task)?;
         }
 
@@ -451,7 +452,8 @@ impl FsStore {
 
     /// Write `.claude/settings.json` in the task directory with hooks that
     /// support task management (prompt activity detection, agent stop detection,
-    /// PR link discovery).
+    /// PR link discovery). Also merges non-hook settings (e.g. `enabledPlugins`)
+    /// from the project-level `.claude/settings.json` if present.
     pub fn write_claude_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 
@@ -465,7 +467,7 @@ impl FsStore {
         let agent_stopped_path = task_dir.join(".agent_stopped");
         let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
 
-        let settings = serde_json::json!({
+        let mut settings = serde_json::json!({
             "hooks": {
                 "UserPromptSubmit": [
                     {
@@ -513,10 +515,97 @@ impl FsStore {
             }
         });
 
+        // Merge allowed settings from project-level .claude/settings.json
+        // (e.g. enabledPlugins) so that project configuration is inherited.
+        // Uses an allowlist to avoid leaking unknown/dangerous keys.
+        const ALLOWED_PROJECT_KEYS: &[&str] = &["enabledPlugins"];
+
+        let project_settings_path = self
+            .project_dir(&task.project_id)
+            .join(".claude")
+            .join("settings.json");
+        if project_settings_path.exists() {
+            match fs::read_to_string(&project_settings_path) {
+                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(project_settings) => {
+                        if let Some(project_obj) = project_settings.as_object() {
+                            let settings_obj = settings.as_object_mut().unwrap();
+                            for key in ALLOWED_PROJECT_KEYS {
+                                if let Some(value) = project_obj.get(*key) {
+                                    settings_obj.insert((*key).to_string(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: failed to parse project settings {}: {}",
+                            project_settings_path.display(),
+                            e
+                        );
+                    }
+                },
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    eprintln!(
+                        "Warning: failed to read project settings {}: {}",
+                        project_settings_path.display(),
+                        e
+                    );
+                }
+                _ => {} // File not found after exists() check — race condition, ignore
+            }
+        }
+
         fs::write(
             claude_dir.join("settings.json"),
             serde_json::to_string_pretty(&settings)?,
         )?;
+
+        Ok(())
+    }
+
+    /// Copy `.claude/settings.local.json` from the project directory to the
+    /// task directory so that project-local settings (e.g. plugin
+    /// configurations not committed to version control) are inherited.
+    fn copy_claude_settings_local(&self, task: &Task) -> AppResult<()> {
+        let project_local = self
+            .project_dir(&task.project_id)
+            .join(".claude")
+            .join("settings.local.json");
+        if !project_local.exists() {
+            return Ok(());
+        }
+
+        let task_claude_dir = self
+            .task_dir(&task.project_id, &task.id)
+            .join(".claude");
+        fs::create_dir_all(&task_claude_dir)?;
+
+        match fs::read_to_string(&project_local) {
+            Ok(content) => {
+                // Validate it is proper JSON before copying
+                match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(_) => {
+                        fs::write(task_claude_dir.join("settings.local.json"), content)?;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: failed to parse project settings.local.json {}: {}",
+                            project_local.display(),
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "Warning: failed to read project settings.local.json {}: {}",
+                    project_local.display(),
+                    e
+                );
+            }
+            _ => {}
+        }
 
         Ok(())
     }

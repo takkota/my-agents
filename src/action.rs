@@ -80,8 +80,12 @@ pub enum Action {
         url: String,
     },
 
-    // Agent actions
+    // Agent instructions
     SendReviewInstruction {
+        task_id: String,
+        project_id: String,
+    },
+    SendPrInstruction {
         task_id: String,
         project_id: String,
     },

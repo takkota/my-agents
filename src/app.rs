@@ -323,6 +323,16 @@ impl App {
                     return Ok(Some(Action::OpenSetStatus));
                 }
             }
+            KeyCode::Char('P') => {
+                if let Some(TreeItem::Task { id, project_id, .. }) =
+                    self.task_tree.selected_item()
+                {
+                    return Ok(Some(Action::SendPrInstruction {
+                        task_id: id.clone(),
+                        project_id: project_id.clone(),
+                    }));
+                }
+            }
             KeyCode::Char('L') => {
                 return Ok(Some(Action::OpenSetLink));
             }
@@ -709,8 +719,10 @@ impl App {
                 link,
             } => {
                 self.update_task(&project_id, &task_id, |task| {
-                    task.links.push(link);
-                    task.updated_at = Utc::now();
+                    if !task.links.iter().any(|l| l.url == link.url) {
+                        task.links.push(link);
+                        task.updated_at = Utc::now();
+                    }
                 })?;
                 self.active_modal = None;
                 self.reload_data()?;
@@ -730,6 +742,16 @@ impl App {
                 self.active_modal = None;
                 self.reload_data()?;
                 self.rebuild_tree();
+            }
+
+            Action::SendPrInstruction { task_id, project_id } => {
+                let session_name = TmuxService::session_name(&project_id, &task_id);
+                if self.tmux.session_exists(&session_name) {
+                    let instruction = "CLAUDE.mdの指示に従い、今回の変更内容に対するPull Requestを作成してください。";
+                    self.tmux.send_keys(&session_name, instruction)?;
+                } else {
+                    self.error_message = Some("No active tmux session for this task".to_string());
+                }
             }
 
             Action::OpenLinkInBrowser { url } => {
@@ -872,8 +894,10 @@ impl App {
                             } => {
                                 let link = TaskLink { url, display_name: None };
                                 let _ = self.update_task(&project_id, &task_id, |task| {
-                                    task.links.push(link);
-                                    task.updated_at = Utc::now();
+                                    if !task.links.iter().any(|l| l.url == link.url) {
+                                        task.links.push(link);
+                                        task.updated_at = Utc::now();
+                                    }
                                 });
                                 data_changed = true;
                             }
