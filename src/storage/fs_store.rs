@@ -730,6 +730,12 @@ ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--a
 ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
 ```
 
+### List all projects
+
+```bash
+ma-task projects
+```
+
 ## Guidelines
 
 - After creating a PR, always add the link with `ma-task link`.
