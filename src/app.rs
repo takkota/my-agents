@@ -1032,12 +1032,14 @@ impl App {
         let bg_task = task.clone();
         let bg_task_dir = task_dir.clone();
 
+        let pr_prompt = self.config.pr_prompt.clone();
         std::thread::spawn(move || {
             let output = task_setup::run_task_setup(
                 TaskSetupInput {
                     task: &bg_task,
                     project: &project,
                     task_dir: &bg_task_dir,
+                    pr_prompt,
                 },
                 &store,
                 &tmux,

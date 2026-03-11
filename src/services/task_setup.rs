@@ -10,6 +10,7 @@ pub struct TaskSetupInput<'a> {
     pub task: &'a Task,
     pub project: &'a Project,
     pub task_dir: &'a Path,
+    pub pr_prompt: String,
 }
 
 /// Output from the task setup pipeline.
@@ -102,7 +103,7 @@ pub fn run_task_setup(
     updated_task.worktrees = worktrees.clone();
     if let Err(e) = store
         .save_task(&updated_task)
-        .and_then(|_| store.write_agent_config_files(&updated_task))
+        .and_then(|_| store.write_agent_config_files(&updated_task, &input.pr_prompt))
     {
         append_error(&mut error_msg, &format!("{}", e));
     }

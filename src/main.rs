@@ -122,6 +122,7 @@ fn cmd_setup_task(args: &[String]) -> AppResult<()> {
             task: &task,
             project: &project,
             task_dir: &task_dir,
+            pr_prompt: config.pr_prompt.clone(),
         },
         &store,
         &tmux,

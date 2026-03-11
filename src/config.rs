@@ -48,7 +48,7 @@ fn default_pr_monitor_interval() -> u64 {
 }
 
 fn default_pr_prompt() -> String {
-    "CLAUDE.mdの指示に従い、今回の変更内容に対するPull Requestを作成してください。".to_string()
+    "If any code changes were made during this task, you MUST create a Pull Request before marking the task as completed.".to_string()
 }
 
 fn default_review_prompt() -> String {
