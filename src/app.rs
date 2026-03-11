@@ -1207,9 +1207,12 @@ impl App {
                     .map(|p| p.worktree_copy_files.clone())
                     .unwrap_or_default();
 
+                let project_dir = self.store.project_dir(id);
+
                 self.preview_panel
                     .update_project_info(crate::components::preview_panel::ProjectInfo {
                         name: name.clone(),
+                        project_dir,
                         repos,
                         worktree_copy_files,
                         task_stats: stats,
