@@ -52,7 +52,7 @@ fn default_pr_prompt() -> String {
 }
 
 fn default_review_prompt() -> String {
-    "/codex exec --model gpt-5.3-codex --reasoning high \"このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。\"".to_string()
+    "このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。".to_string()
 }
 
 impl Default for Config {
