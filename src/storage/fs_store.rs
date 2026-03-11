@@ -4,8 +4,35 @@ use crate::domain::task::Task;
 use crate::error::AppResult;
 use anyhow::Context;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+/// Remove a directory tree, stripping macOS ACLs first if plain removal fails.
+///
+/// Sandboxed agent processes (e.g. Claude Code) may add `deny delete` ACLs to
+/// files they create.  `fs::remove_dir_all` cannot delete such entries, so we
+/// fall back to `chmod -RN` (which clears all ACLs) and retry.
+fn force_remove_dir_all(dir: &Path) -> AppResult<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    match fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(_first_err) => {
+            // Strip ACLs and retry (macOS only; on other platforms this is a
+            // no-op because chmod -RN is a macOS extension).
+            let _ = std::process::Command::new("chmod")
+                .args(["-RN"])
+                .arg(dir)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            fs::remove_dir_all(dir)
+                .with_context(|| format!("Failed to remove directory: {}", dir.display()))?;
+            Ok(())
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct FsStore {
@@ -147,10 +174,7 @@ impl FsStore {
 
     pub fn delete_project(&self, project_id: &str) -> AppResult<()> {
         let dir = self.project_dir(project_id);
-        if dir.exists() {
-            fs::remove_dir_all(&dir)?;
-        }
-        Ok(())
+        force_remove_dir_all(&dir)
     }
 
     // Task operations
@@ -199,10 +223,7 @@ impl FsStore {
 
     pub fn delete_task_dir(&self, project_id: &str, task_id: &str) -> AppResult<()> {
         let dir = self.task_dir(project_id, task_id);
-        if dir.exists() {
-            fs::remove_dir_all(&dir)?;
-        }
-        Ok(())
+        force_remove_dir_all(&dir)
     }
 
     pub fn write_agent_config_files(&self, task: &Task) -> AppResult<()> {
