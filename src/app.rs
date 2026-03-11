@@ -203,7 +203,6 @@ impl App {
             self.rebuild_tree();
             self.refresh_preview_task_info();
         }
-
     }
 
     /// Check if the background repo scan has completed and store results.
@@ -244,8 +243,11 @@ impl App {
     }
 
     fn rebuild_tree(&mut self) {
-        self.task_tree
-            .rebuild(&self.projects, &self.tasks_by_project, &self.active_sessions);
+        self.task_tree.rebuild(
+            &self.projects,
+            &self.tasks_by_project,
+            &self.active_sessions,
+        );
     }
 
     pub fn handle_paste_event(&mut self, text: &str) {
@@ -286,9 +288,7 @@ impl App {
         // Modal takes priority
         if let Some(modal) = &mut self.active_modal {
             // Ctrl+C acts as Escape to close modals
-            if key.code == KeyCode::Char('c')
-                && key.modifiers == KeyModifiers::CONTROL
-            {
+            if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
                 return Ok(Some(Action::CloseModal));
             }
             return match modal {
@@ -324,8 +324,7 @@ impl App {
                 return Ok(Some(Action::OpenSettings));
             }
             KeyCode::Char('P') => {
-                if let Some(TreeItem::Task { id, project_id, .. }) =
-                    self.task_tree.selected_item()
+                if let Some(TreeItem::Task { id, project_id, .. }) = self.task_tree.selected_item()
                 {
                     return Ok(Some(Action::SendPrInstruction {
                         task_id: id.clone(),
@@ -338,8 +337,7 @@ impl App {
             }
             KeyCode::Char('o') => {
                 // Open task link(s) in external browser
-                if let Some(TreeItem::Task { id, project_id, .. }) =
-                    self.task_tree.selected_item()
+                if let Some(TreeItem::Task { id, project_id, .. }) = self.task_tree.selected_item()
                 {
                     if let Some(tasks) = self.tasks_by_project.get(project_id.as_str()) {
                         if let Some(task) = tasks.iter().find(|t| t.id == *id) {
@@ -361,8 +359,7 @@ impl App {
                 }
             }
             KeyCode::Char(c @ '1'..='5') => {
-                if let Some(TreeItem::Task { id, project_id, .. }) =
-                    self.task_tree.selected_item()
+                if let Some(TreeItem::Task { id, project_id, .. }) = self.task_tree.selected_item()
                 {
                     let priority = match c {
                         '1' => Priority::P1,
@@ -379,8 +376,7 @@ impl App {
                 }
             }
             KeyCode::Char('R') => {
-                if let Some(TreeItem::Task { id, project_id, .. }) =
-                    self.task_tree.selected_item()
+                if let Some(TreeItem::Task { id, project_id, .. }) = self.task_tree.selected_item()
                 {
                     return Ok(Some(Action::SendReviewInstruction {
                         task_id: id.clone(),
@@ -462,8 +458,8 @@ impl App {
                             let selected_repos: Vec<std::path::PathBuf> = project
                                 .map(|p| p.repos.iter().map(|r| r.path.clone()).collect())
                                 .unwrap_or_default();
-                            let current_description: Option<String> = project
-                                .and_then(|p| p.description.clone());
+                            let current_description: Option<String> =
+                                project.and_then(|p| p.description.clone());
                             let current_copy_files: Vec<String> = project
                                 .map(|p| p.worktree_copy_files.clone())
                                 .unwrap_or_default();
@@ -511,8 +507,7 @@ impl App {
                 if let Some(TreeItem::Task { id, project_id, .. }) =
                     self.task_tree.selected_item().cloned()
                 {
-                    self.active_modal =
-                        Some(ModalKind::SetLink(SetLinkModal::new(id, project_id)));
+                    self.active_modal = Some(ModalKind::SetLink(SetLinkModal::new(id, project_id)));
                 }
             }
             Action::OpenFilter => {
@@ -533,15 +528,12 @@ impl App {
                 self.rebuild_tree();
             }
             Action::OpenSort => {
-                self.active_modal =
-                    Some(ModalKind::Sort(SortModal::new(self.task_tree.sort_mode)));
+                self.active_modal = Some(ModalKind::Sort(SortModal::new(self.task_tree.sort_mode)));
             }
             Action::OpenConfirmDelete => {
                 if let Some(item) = self.task_tree.selected_item().cloned() {
                     let target = match item {
-                        TreeItem::Project { id, name, .. } => {
-                            DeleteTarget::Project { id, name }
-                        }
+                        TreeItem::Project { id, name, .. } => DeleteTarget::Project { id, name },
                         TreeItem::Task {
                             id,
                             project_id,
@@ -599,7 +591,12 @@ impl App {
             }
 
             // CRUD actions
-            Action::CreateProject { name, description, repos, worktree_copy_files } => {
+            Action::CreateProject {
+                name,
+                description,
+                repos,
+                worktree_copy_files,
+            } => {
                 // Check for duplicate project ID
                 if self.projects.iter().any(|p| p.id == name) {
                     self.error_message = Some(format!("Project '{}' already exists", name));
@@ -670,7 +667,15 @@ impl App {
                 links,
                 initial_instructions,
             } => {
-                let task_id = self.handle_create_task(project_id.clone(), name, priority, agent_cli, notes, links, initial_instructions)?;
+                let task_id = self.handle_create_task(
+                    project_id.clone(),
+                    name,
+                    priority,
+                    agent_cli,
+                    notes,
+                    links,
+                    initial_instructions,
+                )?;
                 self.active_modal = None;
                 self.reload_data()?;
                 self.task_tree.expanded.insert(project_id);
@@ -772,12 +777,33 @@ impl App {
                 self.rebuild_tree();
             }
 
-            Action::SendPrInstruction { task_id, project_id } => {
-                let session_name = TmuxService::session_name(&project_id, &task_id);
-                if self.tmux.session_exists(&session_name) {
-                    self.tmux.send_keys(&session_name, &self.config.pr_prompt)?;
-                } else {
-                    self.error_message = Some("No active tmux session for this task".to_string());
+            Action::SendPrInstruction {
+                task_id,
+                project_id,
+            } => {
+                let task = self
+                    .tasks_by_project
+                    .get(project_id.as_str())
+                    .and_then(|tasks| tasks.iter().find(|t| t.id == task_id))
+                    .cloned();
+                if let Some(task) = task {
+                    let session_name = task
+                        .tmux_session
+                        .clone()
+                        .unwrap_or_else(|| TmuxService::session_name(&project_id, &task_id));
+                    if self.tmux.session_exists(&session_name) {
+                        if let Err(e) = self.tmux.send_prompt(
+                            &session_name,
+                            task.agent_cli,
+                            &self.config.pr_prompt,
+                        ) {
+                            self.error_message =
+                                Some(format!("Failed to send PR instruction: {}", e));
+                        }
+                    } else {
+                        self.error_message =
+                            Some("No active tmux session for this task".to_string());
+                    }
                 }
             }
 
@@ -811,16 +837,15 @@ impl App {
                         let session_name = task
                             .tmux_session
                             .clone()
-                            .unwrap_or_else(|| {
-                                TmuxService::session_name(&project_id, &task_id)
-                            });
+                            .unwrap_or_else(|| TmuxService::session_name(&project_id, &task_id));
                         if self.tmux.session_exists(&session_name) {
-                            if let Err(e) = self.tmux.send_text(&session_name, &self.config.review_prompt)
-                            {
-                                self.error_message = Some(format!(
-                                    "Failed to send review instruction: {}",
-                                    e
-                                ));
+                            if let Err(e) = self.tmux.send_prompt(
+                                &session_name,
+                                task.agent_cli,
+                                &self.config.review_prompt,
+                            ) {
+                                self.error_message =
+                                    Some(format!("Failed to send review instruction: {}", e));
                             }
                         } else {
                             self.error_message =
@@ -905,10 +930,15 @@ impl App {
                                 if result.is_ok() {
                                     let task_dir = self.store.task_dir(&project_id, &task_id);
                                     if status == Status::InProgress {
-                                        let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                                        let _ = std::fs::remove_file(
+                                            task_dir.join(".prompt_submitted"),
+                                        );
                                     } else if status == Status::ActionRequired {
-                                        let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));
-                                        let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
+                                        let _ =
+                                            std::fs::remove_file(task_dir.join(".agent_stopped"));
+                                        let _ = std::fs::remove_file(
+                                            task_dir.join(".prompt_submitted"),
+                                        );
                                     }
                                 }
                                 data_changed = true;
@@ -918,7 +948,10 @@ impl App {
                                 project_id,
                                 url,
                             } => {
-                                let link = TaskLink { url, display_name: None };
+                                let link = TaskLink {
+                                    url,
+                                    display_name: None,
+                                };
                                 let _ = self.update_task(&project_id, &task_id, |task| {
                                     if !task.links.iter().any(|l| l.url == link.url) {
                                         task.links.push(link);
@@ -967,7 +1000,6 @@ impl App {
                     self.last_data_fingerprint = self.store.data_fingerprint();
                 }
             }
-
         }
 
         Ok(UpdateResult::Continue)
@@ -986,7 +1018,11 @@ impl App {
         // Generate unique 8-char task ID, checking for collisions
         let task_id = loop {
             let candidate = Uuid::new_v4().to_string()[..8].to_string();
-            let existing = self.tasks_by_project.get(&project_id).map(|t| t.iter().any(|task| task.id == candidate)).unwrap_or(false);
+            let existing = self
+                .tasks_by_project
+                .get(&project_id)
+                .map(|t| t.iter().any(|task| task.id == candidate))
+                .unwrap_or(false);
             if !existing {
                 break candidate;
             }
@@ -1015,7 +1051,6 @@ impl App {
         };
 
         self.store.save_task(&task)?;
-
 
         // Find project info for background setup
         let project = self
@@ -1069,11 +1104,7 @@ impl App {
                 self.rebuild_tree();
                 None
             }
-            TreeItem::Task {
-                id,
-                project_id,
-                ..
-            } => {
+            TreeItem::Task { id, project_id, .. } => {
                 let task = self
                     .tasks_by_project
                     .get(&project_id)
@@ -1109,11 +1140,9 @@ impl App {
                             } else {
                                 None
                             };
-                            let _ = self.tmux.launch_agent(
-                                &session_name,
-                                &task.agent_cli,
-                                prompt_path,
-                            );
+                            let _ =
+                                self.tmux
+                                    .launch_agent(&session_name, &task.agent_cli, prompt_path);
                         }
                         // Persist the session name if it wasn't stored yet
                         if task.tmux_session.is_none() {
@@ -1121,7 +1150,8 @@ impl App {
                                 if let Some(t) = tasks.iter_mut().find(|t| t.id == id) {
                                     t.tmux_session = Some(session_name.clone());
                                     if let Err(e) = self.store.save_task(t) {
-                                        self.error_message = Some(format!("Failed to save task: {}", e));
+                                        self.error_message =
+                                            Some(format!("Failed to save task: {}", e));
                                     }
                                 }
                             }
@@ -1150,7 +1180,10 @@ impl App {
         }
         // Remove trust entries from ~/.claude.json to prevent file bloat (best-effort)
         if let Err(e) = self.store.remove_claude_trust(task) {
-            eprintln!("warn: failed to clean ~/.claude.json for task {}: {e}", task.id);
+            eprintln!(
+                "warn: failed to clean ~/.claude.json for task {}: {e}",
+                task.id
+            );
         }
         Ok(())
     }
@@ -1165,8 +1198,8 @@ impl App {
         let json_path = task_dir.join("task.json");
         let content = std::fs::read_to_string(&json_path)
             .with_context(|| format!("reading {:?}", json_path))?;
-        let mut updated: Task = serde_json::from_str(&content)
-            .with_context(|| format!("parsing {:?}", json_path))?;
+        let mut updated: Task =
+            serde_json::from_str(&content).with_context(|| format!("parsing {:?}", json_path))?;
 
         updater(&mut updated);
         self.store.save_task(&updated)?;
@@ -1183,8 +1216,11 @@ impl App {
                     .get(project_id.as_str())
                     .and_then(|tasks| tasks.iter().find(|t| t.id == *id));
                 if let Some(task) = task {
-                    self.preview_panel
-                        .update_task_info(task.links.clone(), task.notes.clone(), task.initial_instructions.clone());
+                    self.preview_panel.update_task_info(
+                        task.links.clone(),
+                        task.notes.clone(),
+                        task.initial_instructions.clone(),
+                    );
                 } else {
                     self.preview_panel.update_task_info(Vec::new(), None, None);
                 }
@@ -1200,7 +1236,9 @@ impl App {
                         match t.status {
                             crate::domain::task::Status::Todo => stats.todo += 1,
                             crate::domain::task::Status::InProgress => stats.in_progress += 1,
-                            crate::domain::task::Status::ActionRequired => stats.action_required += 1,
+                            crate::domain::task::Status::ActionRequired => {
+                                stats.action_required += 1
+                            }
                             crate::domain::task::Status::Completed => stats.completed += 1,
                             crate::domain::task::Status::Blocked => stats.blocked += 1,
                         }
@@ -1227,15 +1265,16 @@ impl App {
 
                 let project_dir = self.store.project_dir(id);
 
-                self.preview_panel
-                    .update_project_info(crate::components::preview_panel::ProjectInfo {
+                self.preview_panel.update_project_info(
+                    crate::components::preview_panel::ProjectInfo {
                         name: name.clone(),
                         description,
                         project_dir,
                         repos,
                         worktree_copy_files,
                         task_stats: stats,
-                    });
+                    },
+                );
             }
             None => {
                 self.preview_panel.update_task_info(Vec::new(), None, None);
@@ -1246,17 +1285,11 @@ impl App {
     pub fn render(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        let main_chunks = Layout::vertical([
-            Constraint::Min(3),
-            Constraint::Length(1),
-        ])
-        .split(area);
+        let main_chunks = Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(area);
 
-        let content_chunks = Layout::horizontal([
-            Constraint::Percentage(45),
-            Constraint::Percentage(55),
-        ])
-        .split(main_chunks[0]);
+        let content_chunks =
+            Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)])
+                .split(main_chunks[0]);
 
         // Left panel: task tree
         self.task_tree.render(frame, content_chunks[0]);
@@ -1276,7 +1309,9 @@ impl App {
             let modal_area = centered_rect(60, 70, area);
             match modal {
                 ModalKind::CreateProject(m) => m.render(frame, modal_area),
-                ModalKind::CreateTask(m) => m.render(frame, centered_rect_with_max(90, 90, 120, 55, area)),
+                ModalKind::CreateTask(m) => {
+                    m.render(frame, centered_rect_with_max(90, 90, 120, 55, area))
+                }
                 ModalKind::EditItem(m) => m.render(frame, modal_area),
                 ModalKind::SetStatus(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::SetLink(m) => m.render(frame, centered_rect(50, 30, area)),
