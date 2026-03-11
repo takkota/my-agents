@@ -377,6 +377,54 @@ impl FsStore {
         Ok(())
     }
 
+    /// Remove a task directory (and its worktree sub-directories) from the
+    /// `projects` map in `~/.claude.json` so the file doesn't grow unboundedly.
+    pub fn remove_claude_trust(&self, task: &Task) -> AppResult<()> {
+        let claude_json_path = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+            .join(".claude.json");
+
+        if !claude_json_path.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(&claude_json_path)?;
+        let mut config: serde_json::Value = serde_json::from_str(&content)?;
+
+        let projects = match config
+            .as_object_mut()
+            .and_then(|o| o.get_mut("projects"))
+            .and_then(|v| v.as_object_mut())
+        {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        // Collect paths to remove: the task directory itself + any worktree sub-paths
+        let task_dir_path = self.task_dir(&task.project_id, &task.id);
+        let mut to_remove: Vec<String> = Vec::new();
+        for key in projects.keys() {
+            if Path::new(key).starts_with(&task_dir_path) {
+                to_remove.push(key.clone());
+            }
+        }
+
+        if to_remove.is_empty() {
+            return Ok(());
+        }
+
+        for key in &to_remove {
+            projects.remove(key);
+        }
+
+        fs::write(
+            &claude_json_path,
+            serde_json::to_string_pretty(&config)?,
+        )?;
+
+        Ok(())
+    }
+
     /// Copy skills from the project directory to the task directory.
     /// Claude Code and Codex only discover skills in/below the CWD, so
     /// project-level skills must be copied (symlinked) into each task dir.

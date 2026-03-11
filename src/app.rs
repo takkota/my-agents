@@ -1260,6 +1260,10 @@ impl App {
         for wt in &task.worktrees {
             let _ = self.worktree_svc.remove_worktree(wt);
         }
+        // Remove trust entries from ~/.claude.json to prevent file bloat (best-effort)
+        if let Err(e) = self.store.remove_claude_trust(task) {
+            eprintln!("warn: failed to clean ~/.claude.json for task {}: {e}", task.id);
+        }
         Ok(())
     }
 
