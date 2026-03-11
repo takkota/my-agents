@@ -102,12 +102,16 @@ impl TmuxService {
                 }
                 drop(slave);
 
-                let prog = CString::new("tmux").unwrap();
+                let prog = CString::new("tmux").expect("static string");
+                let session_name = match CString::new(name) {
+                    Ok(s) => s,
+                    Err(_) => std::process::exit(1), // name contains null byte
+                };
                 let args = [
-                    CString::new("tmux").unwrap(),
-                    CString::new("attach-session").unwrap(),
-                    CString::new("-t").unwrap(),
-                    CString::new(name).unwrap(),
+                    CString::new("tmux").expect("static string"),
+                    CString::new("attach-session").expect("static string"),
+                    CString::new("-t").expect("static string"),
+                    session_name,
                 ];
                 let _ = nix::unistd::execvp(&prog, &args);
                 std::process::exit(1);
@@ -163,8 +167,10 @@ impl TmuxService {
     pub fn launch_agent(&self, session: &str, cli: &AgentCli, initial_prompt_file: Option<&Path>) -> AppResult<()> {
         if let Some(cmd) = cli.launch_command() {
             let full_cmd = if let Some(prompt_file) = initial_prompt_file {
-                // Pass initial prompt via file to avoid shell escaping issues
-                format!("{} \"$(cat {})\"", cmd, prompt_file.to_string_lossy())
+                // Pass initial prompt via file using single-quoted path to prevent
+                // shell injection. Any single quotes in the path are escaped.
+                let escaped = prompt_file.to_string_lossy().replace('\'', "'\\''");
+                format!("{} \"$(cat '{}')\"", cmd, escaped)
             } else {
                 cmd
             };
