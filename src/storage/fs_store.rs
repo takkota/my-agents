@@ -396,9 +396,8 @@ impl FsStore {
                             {
                                 "type": "command",
                                 "command": format!(
-                                    "touch {} && rm -f {}",
-                                    shell_escape(&agent_stopped_path_str),
-                                    shell_escape(&prompt_submitted_path_str)
+                                    "touch {}",
+                                    shell_escape(&agent_stopped_path_str)
                                 )
                             }
                         ]
