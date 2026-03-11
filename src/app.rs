@@ -462,6 +462,8 @@ impl App {
                             let selected_repos: Vec<std::path::PathBuf> = project
                                 .map(|p| p.repos.iter().map(|r| r.path.clone()).collect())
                                 .unwrap_or_default();
+                            let current_description: Option<String> = project
+                                .and_then(|p| p.description.clone());
                             let current_copy_files: Vec<String> = project
                                 .map(|p| p.worktree_copy_files.clone())
                                 .unwrap_or_default();
@@ -470,6 +472,7 @@ impl App {
                                 EditProjectModal::new(
                                     id,
                                     name,
+                                    current_description,
                                     self.available_repos.clone(),
                                     selected_repos,
                                     current_copy_files,
@@ -596,7 +599,7 @@ impl App {
             }
 
             // CRUD actions
-            Action::CreateProject { name, repos, worktree_copy_files } => {
+            Action::CreateProject { name, description, repos, worktree_copy_files } => {
                 // Check for duplicate project ID
                 if self.projects.iter().any(|p| p.id == name) {
                     self.error_message = Some(format!("Project '{}' already exists", name));
@@ -611,6 +614,7 @@ impl App {
                         .into_iter()
                         .map(|(n, p)| RepoRef { name: n, path: p })
                         .collect(),
+                    description,
                     worktree_copy_files,
                     created_at: now,
                     updated_at: now,
@@ -624,12 +628,14 @@ impl App {
             Action::UpdateProject {
                 project_id,
                 name,
+                description,
                 repos,
                 worktree_copy_files,
             } => {
                 if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
                     let mut updated = project;
                     updated.name = name;
+                    updated.description = description;
                     updated.repos = repos
                         .into_iter()
                         .map(|(n, p)| RepoRef { name: n, path: p })
@@ -1211,6 +1217,8 @@ impl App {
                     })
                     .unwrap_or_default();
 
+                let description = project.and_then(|p| p.description.clone());
+
                 let worktree_copy_files = project
                     .map(|p| p.worktree_copy_files.clone())
                     .unwrap_or_default();
@@ -1220,6 +1228,7 @@ impl App {
                 self.preview_panel
                     .update_project_info(crate::components::preview_panel::ProjectInfo {
                         name: name.clone(),
+                        description,
                         project_dir,
                         repos,
                         worktree_copy_files,

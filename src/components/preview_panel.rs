@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[derive(Clone)]
 pub struct ProjectInfo {
     pub name: String,
+    pub description: Option<String>,
     pub project_dir: PathBuf,
     pub repos: Vec<RepoInfo>,
     pub worktree_copy_files: Vec<String>,
@@ -199,6 +200,18 @@ impl PreviewPanel {
                 Style::default().fg(Color::White),
             ),
         ]));
+        // Description section
+        if let Some(desc) = &info.description {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    desc.clone(),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+        }
+
         lines.push(Line::from(""));
 
         // Repositories section

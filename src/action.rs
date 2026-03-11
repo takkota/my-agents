@@ -26,12 +26,14 @@ pub enum Action {
     // Project CRUD
     CreateProject {
         name: String,
+        description: Option<String>,
         repos: Vec<(String, PathBuf)>,
         worktree_copy_files: Vec<String>,
     },
     UpdateProject {
         project_id: String,
         name: String,
+        description: Option<String>,
         repos: Vec<(String, PathBuf)>,
         worktree_copy_files: Vec<String>,
     },

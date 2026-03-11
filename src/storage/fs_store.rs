@@ -798,6 +798,7 @@ ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
                 name: "home".to_string(),
                 path: home,
             }],
+            description: None,
             worktree_copy_files: Vec::new(),
             created_at: now,
             updated_at: now,

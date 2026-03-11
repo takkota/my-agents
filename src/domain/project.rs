@@ -8,6 +8,8 @@ pub struct Project {
     pub name: String,
     pub repos: Vec<RepoRef>,
     #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub worktree_copy_files: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
