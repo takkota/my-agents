@@ -25,6 +25,52 @@ fn run_git(upstream_repo: &Path, args: &[&str]) -> AppResult<()> {
     Ok(())
 }
 
+/// Run a git command and capture stdout.
+fn run_git_output(upstream_repo: &Path, args: &[&str]) -> AppResult<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(upstream_repo)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "git {} failed in {:?}: {}",
+            args.first().unwrap_or(&""),
+            upstream_repo,
+            stderr.trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Detect the remote default branch (origin/main or origin/master).
+fn detect_remote_default_branch(upstream_repo: &Path) -> AppResult<String> {
+    // Try `git symbolic-ref refs/remotes/origin/HEAD` first
+    if let Ok(symbolic) = run_git_output(
+        upstream_repo,
+        &["symbolic-ref", "refs/remotes/origin/HEAD"],
+    ) {
+        // Returns something like "refs/remotes/origin/main"
+        if let Some(branch) = symbolic.strip_prefix("refs/remotes/") {
+            return Ok(branch.to_string());
+        }
+    }
+    // Fallback: check if origin/main exists, then origin/master
+    if run_git_output(upstream_repo, &["rev-parse", "--verify", "origin/main"]).is_ok() {
+        return Ok("origin/main".to_string());
+    }
+    if run_git_output(upstream_repo, &["rev-parse", "--verify", "origin/master"]).is_ok() {
+        return Ok("origin/master".to_string());
+    }
+    anyhow::bail!(
+        "Could not detect remote default branch in {:?}",
+        upstream_repo
+    );
+}
+
 pub struct WorktreeService;
 
 impl WorktreeService {
@@ -38,6 +84,21 @@ impl WorktreeService {
         target_dir: &Path,
         branch: &str,
     ) -> AppResult<()> {
+        // Fetch latest from origin so worktree starts from up-to-date remote state.
+        // If fetch fails (offline, auth error, etc.), fall back to HEAD to avoid
+        // using stale remote-tracking refs.
+        let fetch_ok = run_git(upstream_repo, &["fetch", "origin"]).is_ok();
+
+        let start_point = if fetch_ok {
+            // Only use remote branch when fetch succeeded (refs are up-to-date)
+            detect_remote_default_branch(upstream_repo).ok()
+        } else {
+            // Fetch failed (offline, auth error, etc.) — don't use potentially
+            // stale remote-tracking refs; fall back to HEAD instead.
+            None
+        };
+        let start_point = start_point.as_deref().unwrap_or("HEAD");
+
         run_git(
             upstream_repo,
             &[
@@ -46,6 +107,7 @@ impl WorktreeService {
                 &target_dir.to_string_lossy(),
                 "-b",
                 branch,
+                start_point,
             ],
         )
     }
