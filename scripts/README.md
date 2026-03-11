@@ -67,8 +67,8 @@ ma-task create --project myproj --name "Fix login bug"
 
 # リンク付きタスク作成
 ma-task create --project myproj --name "Fix login bug" \
-  --link "https://github.com/org/repo/issues/42" \
-  --link "https://github.com/org/repo/pull/43"
+  --link "https://github.com/owner/repo/issues/42" \
+  --link "https://github.com/owner/repo/pull/43"
 
 # エージェント付きタスク作成 + 即時実行
 ma-task create \

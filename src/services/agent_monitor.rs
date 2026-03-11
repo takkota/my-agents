@@ -188,6 +188,9 @@ impl AgentMonitor {
 }
 
 /// Validate that a string is a well-formed GitHub PR URL.
+///
+/// Rejects common placeholder owner/repo names that appear in documentation
+/// and example snippets to prevent false-positive link detection.
 fn is_github_pr_url(url: &str) -> bool {
     let url = url.trim_end_matches('/');
     let parts: Vec<&str> = url.split('/').collect();
@@ -195,7 +198,58 @@ fn is_github_pr_url(url: &str) -> bool {
         return false;
     }
     let len = parts.len();
-    parts[len - 2] == "pull"
+    if !(parts[len - 2] == "pull"
         && parts[len - 1].chars().all(|c| c.is_ascii_digit())
-        && url.starts_with("https://github.com/")
+        && url.starts_with("https://github.com/"))
+    {
+        return false;
+    }
+    // Reject placeholder owner/repo combinations found in docs and examples.
+    // The URL format is https://github.com/{owner}/{repo}/pull/{number}
+    // so parts after splitting by '/' are: ["https:", "", "github.com", owner, repo, "pull", number]
+    if parts.len() >= 7 {
+        let owner = parts[3];
+        let repo = parts[4];
+        const PLACEHOLDER_OWNERS: &[&str] = &["owner", "org", "example", "user", "your-org"];
+        const PLACEHOLDER_REPOS: &[&str] = &["repo", "repository", "my-repo", "your-repo", "example"];
+        if PLACEHOLDER_OWNERS.contains(&owner) && PLACEHOLDER_REPOS.contains(&repo) {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_github_pr_url_valid() {
+        assert!(is_github_pr_url("https://github.com/acme/widget/pull/42"));
+        assert!(is_github_pr_url("https://github.com/acme/widget/pull/42/"));
+    }
+
+    #[test]
+    fn test_is_github_pr_url_invalid() {
+        assert!(!is_github_pr_url("https://github.com/acme/widget/issues/42"));
+        assert!(!is_github_pr_url("https://example.com/acme/widget/pull/42"));
+        assert!(!is_github_pr_url("not-a-url"));
+    }
+
+    #[test]
+    fn test_is_github_pr_url_rejects_placeholders() {
+        // These placeholder URLs appear in documentation and examples
+        assert!(!is_github_pr_url("https://github.com/owner/repo/pull/123"));
+        assert!(!is_github_pr_url("https://github.com/org/repo/pull/43"));
+        assert!(!is_github_pr_url("https://github.com/example/repository/pull/1"));
+        assert!(!is_github_pr_url("https://github.com/user/my-repo/pull/99"));
+        assert!(!is_github_pr_url("https://github.com/your-org/your-repo/pull/5"));
+    }
+
+    #[test]
+    fn test_is_github_pr_url_allows_real_looking_names() {
+        // Only reject when BOTH owner and repo are placeholders
+        assert!(is_github_pr_url("https://github.com/org/real-project/pull/43"));
+        assert!(is_github_pr_url("https://github.com/real-org/repo/pull/43"));
+    }
 }
