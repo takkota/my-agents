@@ -368,6 +368,16 @@ impl App {
                     }));
                 }
             }
+            KeyCode::Char('R') => {
+                if let Some(TreeItem::Task { id, project_id, .. }) =
+                    self.task_tree.selected_item()
+                {
+                    return Ok(Some(Action::SendReviewInstruction {
+                        task_id: id.clone(),
+                        project_id: project_id.clone(),
+                    }));
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
             KeyCode::Down | KeyCode::Char('j') => return Ok(Some(Action::MoveDown)),
             KeyCode::Enter => return Ok(Some(Action::AttachSession)),
@@ -732,6 +742,23 @@ impl App {
                 };
                 if let Err(e) = std::process::Command::new(cmd).arg(&url).spawn() {
                     self.error_message = Some(format!("Failed to open link: {}", e));
+                }
+            }
+
+            Action::SendReviewInstruction {
+                task_id,
+                project_id,
+            } => {
+                let session_name = TmuxService::session_name(&project_id, &task_id);
+                if self.tmux.session_exists(&session_name) {
+                    let review_prompt = "/codex exec --model gpt-5.3-codex --reasoning high \"このタスクの変更内容について設計・実装面のレビューを行い、フィードバックがあれば対応してください。\"";
+                    if let Err(e) = self.tmux.send_text(&session_name, review_prompt) {
+                        self.error_message =
+                            Some(format!("Failed to send review instruction: {}", e));
+                    }
+                } else {
+                    self.error_message =
+                        Some("No active session for this task".to_string());
                 }
             }
 

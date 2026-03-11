@@ -80,6 +80,12 @@ pub enum Action {
         url: String,
     },
 
+    // Agent actions
+    SendReviewInstruction {
+        task_id: String,
+        project_id: String,
+    },
+
     // System
     Tick,
     Quit,
