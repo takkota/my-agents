@@ -172,6 +172,7 @@ cmd_list() {
 
 cmd_create() {
     local project_id="" name="" priority="P3" agent_cli="None" notes="" prompt="" run=false
+    local -a links=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --project|-p) project_id="${2:?--project requires value}"; shift 2 ;;
@@ -180,6 +181,7 @@ cmd_create() {
             --agent) agent_cli="${2:?--agent requires value}"; shift 2 ;;
             --notes) notes="${2:?--notes requires value}"; shift 2 ;;
             --prompt) prompt="${2:?--prompt requires value}"; shift 2 ;;
+            --link) links+=("${2:?--link requires value}"); shift 2 ;;
             --run) run=true; shift ;;
             *) die "unknown option: $1" ;;
         esac
@@ -226,6 +228,12 @@ cmd_create() {
     local prompt_json="null"
     [ -z "$prompt" ] || prompt_json="$(echo "$prompt" | jq -Rs .)"
 
+    # Build links JSON array
+    local links_json="[]"
+    if [ ${#links[@]} -gt 0 ]; then
+        links_json="$(printf '%s\n' "${links[@]}" | jq -R '{"url": ., "display_name": null}' | jq -s .)"
+    fi
+
     local json
     json="$(jq -n \
         --arg id "$task_id" \
@@ -235,6 +243,7 @@ cmd_create() {
         --arg agent "$agent_cli" \
         --argjson notes "$notes_json" \
         --argjson prompt "$prompt_json" \
+        --argjson links "$links_json" \
         --arg now "$now" \
         '{
             id: $id,
@@ -244,7 +253,7 @@ cmd_create() {
             status: "Todo",
             agent_cli: $agent,
             worktrees: [],
-            links: [],
+            links: $links,
             notes: $notes,
             initial_instructions: $prompt,
             tmux_session: null,
@@ -454,6 +463,7 @@ Create options:
   --agent <cli>         Agent CLI: Claude, Codex, None (default: None)
   --notes <text>        Initial notes
   --prompt <text>       Initial instructions for the agent
+  --link <url>          Add a link (repeatable for multiple links)
   --run                 Set up worktree, tmux session, and launch agent immediately
 
 Update options:
