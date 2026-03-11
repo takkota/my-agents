@@ -62,20 +62,43 @@ my-agents
 | `n` | タスク作成 |
 | `m` | 編集 |
 | `d` | 削除 |
-| `S` | ステータス変更 |
+| `S` / `$` | ステータス変更 |
 | `L` | リンク追加 |
+| `o` | リンクをブラウザで開く |
 | `f` | フィルタ |
+| `A` | Action Requiredでフィルタ |
 | `s` | ソート |
+| `1` - `5` | Priority設定（P1〜P5） |
+| `P` | エージェントにPR作成を指示 |
+| `R` | エージェントにレビューを指示 |
 | `q` | 終了 |
+
+### Emacs風キーバインド（グローバル）
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+N` / `Ctrl+P` | ↓ / ↑ |
+| `Ctrl+F` / `Ctrl+B` | → / ← |
+| `Ctrl+A` / `Ctrl+E` | Home / End |
+| `Ctrl+H` / `Ctrl+D` | Backspace / Delete |
 
 ### モーダル
 
 | Key | Action |
 |-----|--------|
-| `Tab` | 次のフィールド |
-| `Enter` | 確定 |
-| `Esc` | キャンセル |
-| `Space` | チェックボックス切替（リポジトリ選択等） |
+| `Ctrl+Enter` | 確定（フォーム送信） |
+| `Tab` / `Shift+Tab` | 次 / 前のフィールド |
+| `Enter` | 選択確定（ステータス・ソート等） / テキストエリア内改行 |
+| `Esc` / `Ctrl+C` | キャンセル |
+| `Space` | チェックボックス切替（リポジトリ選択・フィルタ等） |
+| `j` / `k` | リスト内カーソル移動 |
+
+### テキスト入力
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+U` | カーソルから行頭まで削除 |
+| `Ctrl+K` | カーソルから行末まで削除 |
 
 ### tmuxセッション内
 
@@ -89,7 +112,8 @@ my-agents
 ~/.my-agents/
 ├── config.toml                          # 設定ファイル
 ├── bin/
-│   └── ma-task                          # エージェント向けタスク管理CLI
+│   ├── ma-task                          # エージェント向けタスク管理CLI
+│   └── ma-codex-notify                  # Codex notify イベントハンドラ
 └── projects/
     └── {project_name}/
         ├── project.json                 # プロジェクトメタデータ
@@ -107,6 +131,8 @@ my-agents
                 │   └── skills/
                 │       └── task-management/
                 │           └── SKILL.md # Codex用スキル
+                ├── .codex/
+                │   └── config.toml      # Codex notify設定
                 └── {repo_name}/         # git worktree
 ```
 
