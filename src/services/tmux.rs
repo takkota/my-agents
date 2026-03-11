@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::path::Path;
 use std::process::Command;
+use unicode_width::UnicodeWidthChar;
 
 const CTRL_Q: u8 = 0x11; // ASCII 17
 
@@ -37,7 +38,7 @@ impl TmuxService {
     }
 
     pub fn create_session(&self, name: &str, start_dir: &Path) -> AppResult<()> {
-        let status = Self::tmux_cmd()
+        let output = Self::tmux_cmd()
             .args([
                 "new-session",
                 "-d",
@@ -46,8 +47,8 @@ impl TmuxService {
                 "-c",
                 &start_dir.to_string_lossy(),
             ])
-            .status()?;
-        if !status.success() {
+            .output()?;
+        if !output.status.success() {
             anyhow::bail!("Failed to create tmux session: {}", name);
         }
 
@@ -145,14 +146,15 @@ impl TmuxService {
         if !output.status.success() {
             anyhow::bail!("Failed to capture tmux pane for session: {}", session);
         }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        let raw = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(sanitize_for_display(raw))
     }
 
     pub fn send_keys(&self, session: &str, text: &str) -> AppResult<()> {
-        let status = Self::tmux_cmd()
+        let output = Self::tmux_cmd()
             .args(["send-keys", "-t", session, text, "Enter"])
-            .status()?;
-        if !status.success() {
+            .output()?;
+        if !output.status.success() {
             anyhow::bail!("Failed to send keys to tmux session: {}", session);
         }
         Ok(())
@@ -206,6 +208,76 @@ impl TmuxService {
             .map(|s| s.to_string())
             .collect();
         Ok(sessions)
+    }
+}
+
+/// Sanitize captured pane content for display in ratatui.
+///
+/// In CJK terminal environments, characters with East Asian Width "Ambiguous"
+/// (e.g., box-drawing `─`, ellipsis `…`) are rendered as 2 cells wide by the
+/// terminal but calculated as 1 cell by ratatui's `unicode-width`.  This width
+/// mismatch causes the crossterm cursor position tracker to desynchronise,
+/// pushing subsequent characters beyond the terminal edge where they wrap into
+/// adjacent panel areas, producing garbled output.
+///
+/// This function replaces such characters with safe ASCII alternatives so that
+/// ratatui's width calculation matches the actual terminal rendering.
+fn sanitize_for_display(input: String) -> String {
+    let mut output = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\n' => output.push('\n'),
+            // Replace control characters (except newline) with space
+            c if c.is_control() => output.push(' '),
+            // Replace characters whose unicode-width (1) disagrees with typical
+            // CJK terminal rendering (2).  Box-drawing (U+2500..U+257F) and a
+            // few other Ambiguous-width symbols are the main offenders.
+            c => {
+                let uw = UnicodeWidthChar::width(c).unwrap_or(0);
+                if uw == 1 && is_ambiguous_wide(c) {
+                    // Emit two single-width chars to match the terminal's 2-cell rendering
+                    output.push(ambiguous_replacement(c));
+                    output.push(' ');
+                } else {
+                    output.push(c);
+                }
+            }
+        }
+    }
+    output
+}
+
+/// Return true for characters that have East Asian Width "Ambiguous" and are
+/// commonly rendered as 2 cells in CJK terminals.
+fn is_ambiguous_wide(c: char) -> bool {
+    matches!(c,
+        // Box Drawing
+        '\u{2500}'..='\u{257F}' |
+        // Block Elements
+        '\u{2580}'..='\u{259F}' |
+        // Geometric Shapes
+        '\u{25A0}'..='\u{25FF}' |
+        // Miscellaneous Symbols
+        '\u{2600}'..='\u{26FF}' |
+        // Dingbats
+        '\u{2700}'..='\u{27BF}' |
+        // Horizontal Ellipsis
+        '\u{2026}' |
+        // Arrows
+        '\u{2190}'..='\u{21FF}' |
+        // Mathematical Operators (common in CLI output)
+        '\u{2200}'..='\u{22FF}'
+    )
+}
+
+/// Pick a single-width ASCII replacement for an ambiguous-width character.
+fn ambiguous_replacement(c: char) -> char {
+    match c {
+        '\u{2500}' | '\u{2501}' | '\u{2504}' | '\u{2505}' | '\u{2508}' | '\u{2509}' => '-',
+        '\u{2502}' | '\u{2503}' | '\u{2506}' | '\u{2507}' | '\u{250A}' | '\u{250B}' => '|',
+        '\u{250C}'..='\u{254B}' => '+', // corners and crosses
+        '\u{2026}' => '.', // ellipsis
+        _ => ' ',
     }
 }
 

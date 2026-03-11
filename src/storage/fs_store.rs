@@ -420,12 +420,9 @@ impl FsStore {
             };
 
             // Create a symlink in the task dir pointing to the canonical source
-            if let Err(e) = std::os::unix::fs::symlink(&canonical, &dest) {
-                eprintln!(
-                    "Warning: failed to symlink skill {:?} -> {:?}: {}",
-                    canonical, dest, e
-                );
-            }
+            // Silently ignore symlink failures (e.g. already exists) to avoid
+            // writing to stderr which corrupts the TUI display.
+            let _ = std::os::unix::fs::symlink(&canonical, &dest);
         }
         Ok(())
     }
@@ -537,22 +534,14 @@ impl FsStore {
                             }
                         }
                     }
-                    Err(e) => {
-                        eprintln!(
-                            "Warning: failed to parse project settings {}: {}",
-                            project_settings_path.display(),
-                            e
-                        );
+                    Err(_) => {
+                        // Silently skip unparseable project settings to avoid
+                        // writing to stderr which corrupts the TUI display.
                     }
                 },
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    eprintln!(
-                        "Warning: failed to read project settings {}: {}",
-                        project_settings_path.display(),
-                        e
-                    );
+                Err(_) => {
+                    // Silently skip unreadable project settings.
                 }
-                _ => {} // File not found after exists() check — race condition, ignore
             }
         }
 
@@ -588,23 +577,15 @@ impl FsStore {
                     Ok(_) => {
                         fs::write(task_claude_dir.join("settings.local.json"), content)?;
                     }
-                    Err(e) => {
-                        eprintln!(
-                            "Warning: failed to parse project settings.local.json {}: {}",
-                            project_local.display(),
-                            e
-                        );
+                    Err(_) => {
+                        // Silently skip unparseable settings.local.json to avoid
+                        // writing to stderr which corrupts the TUI display.
                     }
                 }
             }
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                eprintln!(
-                    "Warning: failed to read project settings.local.json {}: {}",
-                    project_local.display(),
-                    e
-                );
+            Err(_) => {
+                // Silently skip unreadable settings.local.json.
             }
-            _ => {}
         }
 
         Ok(())

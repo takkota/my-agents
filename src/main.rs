@@ -72,6 +72,14 @@ async fn main() -> AppResult<()> {
     let mut events = EventHandler::new(config.tick_rate_ms);
 
     loop {
+        // If a full redraw was requested (e.g. after background threads that may
+        // have written to the terminal), clear ratatui's front buffer so the next
+        // draw overwrites every cell.
+        if app.needs_full_redraw {
+            terminal.clear()?;
+            app.needs_full_redraw = false;
+        }
+
         // Render
         terminal.draw(|frame| app.render(frame))?;
 
@@ -95,6 +103,7 @@ async fn main() -> AppResult<()> {
                             // then reload data in background.
                             terminal = tui::resume()?;
                             events = EventHandler::new(config.tick_rate_ms);
+                            app.needs_full_redraw = true;
                             app.reload_data()?;
                         }
                         Err(e) => {

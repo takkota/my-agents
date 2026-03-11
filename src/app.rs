@@ -73,6 +73,10 @@ pub struct App {
     // Filesystem change detection
     last_data_fingerprint: (u128, usize),
 
+    // Flag to request a full terminal redraw (resets ratatui front buffer).
+    // Used to recover from any external writes that bypass ratatui's buffer.
+    pub needs_full_redraw: bool,
+
     // Error display
     pub error_message: Option<String>,
 }
@@ -135,6 +139,7 @@ impl App {
             pr_monitor,
             tick_count: 0,
             last_data_fingerprint: (0, 0),
+            needs_full_redraw: false,
             error_message: None,
         };
 
@@ -179,6 +184,12 @@ impl App {
             }
         }
 
+        if !completed.is_empty() {
+            // Background task setup threads may have written to the terminal
+            // (e.g. via inherited stdio from subprocess commands), so request
+            // a full redraw to recover from any display corruption.
+            self.needs_full_redraw = true;
+        }
         for result in completed {
             if let Some(error) = result.error {
                 self.error_message = Some(format!("Task setup error: {}", error));
