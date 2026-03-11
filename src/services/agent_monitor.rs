@@ -99,12 +99,26 @@ impl AgentMonitor {
         }
 
         // Priority 2: `.agent_stopped` transitions InProgress to ActionRequired.
-        if *current_status == Status::InProgress && session_alive && agent_stopped_path.exists() {
-            return Some(MonitorEvent::StatusChanged {
-                task_id: task_id.to_string(),
-                project_id: project_id.to_string(),
-                status: Status::ActionRequired,
-            });
+        // Also handles the race where the agent finished before the monitor could
+        // observe the InProgress transition (`.prompt_submitted` was already consumed
+        // by the InProgress transition or never existed because the hook fired and
+        // the monitor caught it).  In that case the status may still be Todo or
+        // another non-InProgress state, but `.agent_stopped` existing without
+        // `.prompt_submitted` means a full prompt→stop cycle completed.
+        if session_alive
+            && agent_stopped_path.exists()
+            && matches!(
+                current_status,
+                Status::InProgress | Status::Todo | Status::ActionRequired
+            )
+        {
+            if *current_status != Status::ActionRequired {
+                return Some(MonitorEvent::StatusChanged {
+                    task_id: task_id.to_string(),
+                    project_id: project_id.to_string(),
+                    status: Status::ActionRequired,
+                });
+            }
         }
 
         None

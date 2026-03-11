@@ -813,6 +813,7 @@ impl App {
                                         let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
                                     } else if status == Status::ActionRequired {
                                         let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));
+                                        let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
                                     }
                                 }
                                 data_changed = true;
@@ -991,15 +992,24 @@ impl App {
                 None
             };
 
+            // Write agent config files BEFORE launching the agent so that
+            // hooks (settings.json) are in place when the agent starts.
+            let mut updated_task = bg_task;
+            updated_task.worktrees = worktrees.clone();
+            let config_error = match store.save_task(&updated_task).and_then(|_| store.write_agent_config_files(&updated_task)) {
+                Ok(()) => None,
+                Err(e) => Some(format!("{}", e)),
+            };
+
             // Create tmux session
-            let session_name = TmuxService::session_name(&bg_task.project_id, &bg_task.id);
+            let session_name = TmuxService::session_name(&updated_task.project_id, &updated_task.id);
             let tmux_session = if TmuxService::is_available() {
                 match tmux.create_session(&session_name, &bg_task_dir) {
                     Ok(()) => {
-                        if bg_task.agent_cli != AgentCli::None {
+                        if updated_task.agent_cli != AgentCli::None {
                             let _ = tmux.launch_agent(
                                 &session_name,
-                                &bg_task.agent_cli,
+                                &updated_task.agent_cli,
                                 prompt_file.as_deref(),
                             );
                             // If an initial prompt was provided, create the
@@ -1021,13 +1031,18 @@ impl App {
                 None
             };
 
-            // Write agent config files (needs updated task with worktrees)
-            let mut updated_task = bg_task;
-            updated_task.worktrees = worktrees.clone();
+            // Update task with tmux session info
             updated_task.tmux_session = tmux_session.clone();
-            let error = match store.save_task(&updated_task).and_then(|_| store.write_agent_config_files(&updated_task)) {
-                Ok(()) => None,
-                Err(e) => Some(format!("{}", e)),
+            let error = match store.save_task(&updated_task) {
+                Ok(()) => config_error,
+                Err(e) => {
+                    let mut msg = config_error.unwrap_or_default();
+                    if !msg.is_empty() {
+                        msg.push_str("; ");
+                    }
+                    msg.push_str(&format!("{}", e));
+                    Some(msg)
+                }
             };
 
             // Send TaskSetupResult immediately so the UI updates
