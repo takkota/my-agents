@@ -351,15 +351,21 @@ impl PreviewPanel {
             None => " Preview ".to_string(),
         };
         let text = Text::from(self.content.as_str());
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(Style::default().fg(Color::DarkGray));
         let paragraph = Paragraph::new(text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(title)
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            )
+            .block(block.clone())
             .wrap(Wrap { trim: false })
             .style(Style::default().fg(Color::Gray));
+
+        // Scroll to bottom so the latest tmux output is always visible
+        let inner_height = block.inner(area).height as usize;
+        let total_lines = paragraph.line_count(area.width);
+        let scroll_offset = total_lines.saturating_sub(inner_height) as u16;
+        let paragraph = paragraph.scroll((scroll_offset, 0));
+
         frame.render_widget(paragraph, area);
     }
 
