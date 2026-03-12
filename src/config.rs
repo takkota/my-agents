@@ -23,6 +23,8 @@ pub struct Config {
     pub pr_prompt: String,
     #[serde(default = "default_review_prompt")]
     pub review_prompt: String,
+    #[serde(default)]
+    pub custom_prompts: Vec<String>,
 }
 
 fn default_data_dir() -> PathBuf {
@@ -66,6 +68,7 @@ impl Default for Config {
             default_sort_mode: SortMode::default(),
             pr_prompt: default_pr_prompt(),
             review_prompt: default_review_prompt(),
+            custom_prompts: Vec::new(),
         }
     }
 }
