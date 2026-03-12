@@ -146,6 +146,57 @@ ma-task link <task-id> <url> [--name <display-name>]
 
 **出力:** 更新後の task.json (JSON)
 
+### run — 既存タスクの実行
+
+```bash
+ma-task run <task-id>
+```
+
+既存タスクに対して worktree 作成・tmux セッション起動・エージェント起動を行う。`create --run` と同等の処理を、既に作成済みのタスクに対して実行する。
+
+- タスクに既に worktree や tmux セッションがある場合は、現在の状態を JSON で出力して正常終了する（再セットアップは行わない）
+- 内部的には `my-agents setup-task` を `exec` で呼び出す
+
+**出力 (新規セットアップ時):** `setup-task` の出力 (worktree パス・tmux セッション名を含む JSON)
+
+**出力 (既にセットアップ済みの場合):**
+
+```json
+{
+  "already_running": true,
+  "task_id": "a1b2c3d4",
+  "project_id": "myproj",
+  "tmux_session": "ma-myproj-a1b2c3",
+  "worktrees": ["/path/to/worktree"]
+}
+```
+
+### delete — タスク削除
+
+```bash
+ma-task delete <task-id>
+```
+
+タスクとそれに紐づくリソースを削除する。以下の順序でクリーンアップを行う:
+
+1. tmux セッションの終了 (`ma-` プレフィックス検証付き)
+2. git worktree の削除 (`task/` プレフィックスのブランチのみ削除)
+3. `~/.claude.json` の信頼済みディレクトリエントリの削除
+4. タスクディレクトリの削除
+
+クリーンアップ中の警告は JSON 出力の `warnings` フィールドに集約される。警告が発生した場合は exit code `1` で終了する。
+
+**出力:**
+
+```json
+{
+  "deleted": true,
+  "task_id": "a1b2c3d4",
+  "project_id": "myproj",
+  "warnings": []
+}
+```
+
 ### projects — プロジェクト一覧
 
 ```bash

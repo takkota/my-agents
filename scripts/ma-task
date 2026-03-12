@@ -439,6 +439,174 @@ cmd_projects() {
     echo "]"
 }
 
+cmd_run() {
+    local task_id="${1:?usage: ma-task run <task-id>}"
+    shift
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    # If task already has worktrees or tmux session, report current state and exit
+    local has_worktrees has_session
+    has_worktrees="$(echo "$json" | jq '.worktrees | length')"
+    has_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+
+    if [ "$has_worktrees" -gt 0 ] || [ -n "$has_session" ]; then
+        echo "$json" | jq '{
+            already_running: true,
+            task_id: .id,
+            project_id: .project_id,
+            tmux_session: .tmux_session,
+            worktrees: [.worktrees[].worktree_path]
+        }'
+        echo "task already has worktrees or a tmux session; skipping setup" >&2
+        return 0
+    fi
+
+    # Delegate to my-agents setup-task for fresh tasks
+    local bin_path=""
+    if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
+        bin_path="${MY_AGENTS_BIN}"
+    elif command -v my-agents >/dev/null 2>&1; then
+        bin_path="my-agents"
+    else
+        die "my-agents binary not found in PATH; install with 'cargo install --path .' or set MY_AGENTS_BIN"
+    fi
+    exec "$bin_path" setup-task --project "$project_id" --task "$task_id"
+}
+
+cmd_delete() {
+    local task_id="${1:?usage: ma-task delete <task-id>}"; shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force|-f) shift ;;  # accepted for backward compat, but no-op
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    local -a warnings=()
+
+    # Kill tmux session (validate prefix to prevent killing unrelated sessions)
+    local tmux_session
+    tmux_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+    if [ -n "$tmux_session" ]; then
+        if [[ "$tmux_session" == ma-* ]]; then
+            if ! tmux kill-session -t "$tmux_session" 2>/dev/null; then
+                warnings+=("tmux session '${tmux_session}' could not be killed (may not exist)")
+            fi
+        else
+            warnings+=("skipped killing tmux session '${tmux_session}': unexpected name prefix")
+        fi
+    fi
+
+    # Remove worktrees
+    local worktree_count
+    worktree_count="$(echo "$json" | jq '.worktrees | length')"
+    for ((i=0; i<worktree_count; i++)); do
+        local wt_path upstream_path branch
+        wt_path="$(echo "$json" | jq -r ".worktrees[$i].worktree_path")"
+        upstream_path="$(echo "$json" | jq -r ".worktrees[$i].upstream_path")"
+        branch="$(echo "$json" | jq -r ".worktrees[$i].branch")"
+
+        # Validate branch name prefix
+        if [[ "$branch" != task/* ]]; then
+            warnings+=("skipped branch deletion for '${branch}': unexpected prefix")
+            continue
+        fi
+
+        if [ -n "$upstream_path" ] && [ -d "$upstream_path" ]; then
+            if ! git -C "$upstream_path" worktree remove "$wt_path" --force 2>/dev/null; then
+                git -C "$upstream_path" worktree prune 2>/dev/null || true
+                warnings+=("worktree '${wt_path}' force-pruned (graceful remove failed)")
+            fi
+            # Delete branch (best-effort)
+            git -C "$upstream_path" branch -D "$branch" 2>/dev/null || true
+        else
+            warnings+=("upstream repo '${upstream_path}' not found, skipped worktree cleanup")
+        fi
+    done
+
+    # Remove ~/.claude.json trust entries (best-effort, mirrors Rust cleanup_task)
+    local claude_json="${HOME}/.claude.json"
+    if [ -f "$claude_json" ] && command -v jq >/dev/null 2>&1; then
+        local task_dir="${PROJECTS_DIR}/${project_id}/tasks/${task_id}"
+        local updated
+        if updated="$(jq --arg prefix "$task_dir" '
+            if .trustedDirectories then
+                .trustedDirectories |= with_entries(select(.key | startswith($prefix) | not))
+            else . end
+        ' "$claude_json" 2>/dev/null)"; then
+            echo "$updated" > "$claude_json" 2>/dev/null || \
+                warnings+=("failed to update ~/.claude.json trust entries")
+        fi
+    fi
+
+    # Delete task directory
+    local task_dir="${PROJECTS_DIR}/${project_id}/tasks/${task_id}"
+    if [ -d "$task_dir" ]; then
+        if ! rm -rf "$task_dir"; then
+            warnings+=("failed to remove task directory '${task_dir}'")
+        fi
+    fi
+
+    # Build result JSON with jq for proper escaping
+    local warnings_json="[]"
+    if [ ${#warnings[@]} -gt 0 ]; then
+        warnings_json="$(printf '%s\n' "${warnings[@]}" | jq -R . | jq -s .)"
+    fi
+    jq -n \
+        --argjson deleted true \
+        --arg task_id "$task_id" \
+        --arg project_id "$project_id" \
+        --argjson warnings "$warnings_json" \
+        '{deleted: $deleted, task_id: $task_id, project_id: $project_id, warnings: $warnings}'
+
+    # Exit non-zero if there were critical warnings (worktree/dir removal failures)
+    if [ ${#warnings[@]} -gt 0 ]; then
+        for w in "${warnings[@]}"; do
+            echo "warning: $w" >&2
+        done
+        return 1
+    fi
+}
+
 cmd_help() {
     cat <<'HELP'
 ma-task: Task management CLI for my-agents
@@ -454,6 +622,8 @@ Commands:
   update <task-id> [options]       Update task fields
   status <task-id> <status>        Change task status
   link <task-id> <url> [--name n]  Add a link to task
+  run <task-id>                    Set up worktree, tmux, and launch agent for existing task
+  delete <task-id>                 Delete task and clean up resources
   help                             Show this help
 
 Create options:
@@ -490,6 +660,8 @@ case "$cmd" in
     update)   cmd_update "$@" ;;
     status)   cmd_status "$@" ;;
     link)     cmd_link "$@" ;;
+    run)      cmd_run "$@" ;;
+    delete)   cmd_delete "$@" ;;
     help|--help|-h) cmd_help ;;
     *) die "unknown command: $cmd (run 'ma-task help')" ;;
 esac
