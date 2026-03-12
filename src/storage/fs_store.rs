@@ -738,10 +738,9 @@ Sets up worktree, tmux session, and launches the agent for an existing task (sam
 
 ```bash
 ma-task delete <task-id>
-ma-task delete <task-id> --force
 ```
 
-Deletes a task and cleans up its worktrees and tmux session. Use `--force` to skip confirmation.
+Deletes a task and cleans up its worktrees and tmux session.
 
 ### List all projects
 

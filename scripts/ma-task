@@ -460,7 +460,27 @@ cmd_run() {
         task_id="${found#*/}"
     fi
 
-    # Delegate to my-agents setup-task; guard check is done on the Rust side
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    # If task already has worktrees or tmux session, report current state and exit
+    local has_worktrees has_session
+    has_worktrees="$(echo "$json" | jq '.worktrees | length')"
+    has_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+
+    if [ "$has_worktrees" -gt 0 ] || [ -n "$has_session" ]; then
+        echo "$json" | jq '{
+            already_running: true,
+            task_id: .id,
+            project_id: .project_id,
+            tmux_session: .tmux_session,
+            worktrees: [.worktrees[].worktree_path]
+        }'
+        echo "task already has worktrees or a tmux session; skipping setup" >&2
+        return 0
+    fi
+
+    # Delegate to my-agents setup-task for fresh tasks
     local bin_path=""
     if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
         bin_path="${MY_AGENTS_BIN}"
@@ -473,11 +493,10 @@ cmd_run() {
 }
 
 cmd_delete() {
-    local task_id="${1:?usage: ma-task delete <task-id> [--force]}"; shift
-    local force=false
+    local task_id="${1:?usage: ma-task delete <task-id>}"; shift
     while [ $# -gt 0 ]; do
         case "$1" in
-            --force|-f) force=true; shift ;;
+            --force|-f) shift ;;  # accepted for backward compat, but no-op
             *) die "unknown option: $1" ;;
         esac
     done
@@ -501,20 +520,6 @@ cmd_delete() {
 
     local json
     json="$(read_task "$project_id" "$task_id")"
-    local task_name
-    task_name="$(echo "$json" | jq -r '.name')"
-
-    # Confirmation prompt (unless --force)
-    if [ "$force" != true ]; then
-        echo "Delete task \"${task_name}\" (${task_id})?" >&2
-        echo "This will remove worktrees, tmux session, and all task data." >&2
-        printf "Type 'yes' to confirm: " >&2
-        local confirm
-        read -r confirm
-        if [ "$confirm" != "yes" ]; then
-            die "aborted"
-        fi
-    fi
 
     local -a warnings=()
 
@@ -618,7 +623,7 @@ Commands:
   status <task-id> <status>        Change task status
   link <task-id> <url> [--name n]  Add a link to task
   run <task-id>                    Set up worktree, tmux, and launch agent for existing task
-  delete <task-id> [--force]       Delete task and clean up resources
+  delete <task-id>                 Delete task and clean up resources
   help                             Show this help
 
 Create options:
