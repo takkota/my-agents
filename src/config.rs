@@ -23,6 +23,8 @@ pub struct Config {
     pub pr_prompt: String,
     #[serde(default = "default_review_prompt")]
     pub review_prompt: String,
+    #[serde(default)]
+    pub custom_prompts: Vec<String>,
 }
 
 fn default_data_dir() -> PathBuf {
@@ -66,6 +68,7 @@ impl Default for Config {
             default_sort_mode: SortMode::default(),
             pr_prompt: default_pr_prompt(),
             review_prompt: default_review_prompt(),
+            custom_prompts: Vec::new(),
         }
     }
 }
@@ -76,7 +79,15 @@ impl Config {
         let config_path = data_dir.join("config.toml");
         if config_path.exists() {
             let content = fs::read_to_string(&config_path)?;
-            let config: Config = toml::from_str(&content)?;
+            let mut config: Config = toml::from_str(&content)?;
+            // Normalize custom_prompts: trim, remove empty, enforce max 5
+            config.custom_prompts = config
+                .custom_prompts
+                .into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .take(5)
+                .collect();
             Ok(config)
         } else {
             Ok(Config::default())

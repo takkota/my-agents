@@ -43,6 +43,8 @@ impl StatusBar {
             Span::styled(" Review ", Style::default().fg(Color::Gray)),
             Span::styled("P", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(" PR ", Style::default().fg(Color::Gray)),
+            Span::styled("U", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" Prompt ", Style::default().fg(Color::Gray)),
             Span::styled("C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(" Settings ", Style::default().fg(Color::Gray)),
             Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),

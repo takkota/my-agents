@@ -2,6 +2,7 @@ use crate::action::Action;
 use crate::components::modals::confirm_delete::{ConfirmDeleteModal, DeleteTarget};
 use crate::components::modals::create_project::CreateProjectModal;
 use crate::components::modals::create_task::CreateTaskModal;
+use crate::components::modals::custom_prompt::CustomPromptModal;
 use crate::components::modals::edit_item::{EditItemModal, EditProjectModal, EditTaskModal};
 use crate::components::modals::filter::FilterModal;
 use crate::components::modals::select_link::SelectLinkModal;
@@ -101,6 +102,7 @@ pub enum ModalKind {
     Sort(SortModal),
     ConfirmDelete(ConfirmDeleteModal),
     Settings(SettingsModal),
+    CustomPrompt(CustomPromptModal),
 }
 
 impl App {
@@ -263,6 +265,7 @@ impl App {
                 ModalKind::Sort(m) => m.handle_paste(text),
                 ModalKind::ConfirmDelete(m) => m.handle_paste(text),
                 ModalKind::Settings(m) => m.handle_paste(text),
+                ModalKind::CustomPrompt(m) => m.handle_paste(text),
             }
         }
     }
@@ -302,6 +305,7 @@ impl App {
                 ModalKind::Sort(m) => m.handle_key(key),
                 ModalKind::ConfirmDelete(m) => m.handle_key(key),
                 ModalKind::Settings(m) => m.handle_key(key),
+                ModalKind::CustomPrompt(m) => m.handle_key(key),
             };
         }
 
@@ -383,6 +387,9 @@ impl App {
                         project_id: project_id.clone(),
                     }));
                 }
+            }
+            KeyCode::Char('U') => {
+                return Ok(Some(Action::OpenCustomPrompt));
             }
             KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
             KeyCode::Down | KeyCode::Char('j') => return Ok(Some(Action::MoveDown)),
@@ -850,6 +857,90 @@ impl App {
                         } else {
                             self.error_message =
                                 Some("No active session for this task".to_string());
+                        }
+                    }
+                }
+            }
+
+            Action::OpenCustomPrompt => {
+                if let Some(TreeItem::Task { id, project_id, .. }) = self.task_tree.selected_item()
+                {
+                    self.active_modal = Some(ModalKind::CustomPrompt(CustomPromptModal::new(
+                        id.clone(),
+                        project_id.clone(),
+                        self.config.custom_prompts.clone(),
+                    )));
+                }
+            }
+
+            Action::SendCustomPrompt {
+                task_id,
+                project_id,
+                prompt,
+            } => {
+                let task = self
+                    .tasks_by_project
+                    .get(project_id.as_str())
+                    .and_then(|tasks| tasks.iter().find(|t| t.id == task_id))
+                    .cloned();
+                if let Some(task) = task {
+                    if task.agent_cli == AgentCli::None {
+                        self.error_message =
+                            Some("No agent CLI configured for this task".to_string());
+                    } else {
+                        let session_name = task
+                            .tmux_session
+                            .clone()
+                            .unwrap_or_else(|| TmuxService::session_name(&project_id, &task_id));
+                        if self.tmux.session_exists(&session_name) {
+                            match self.tmux.send_prompt(&session_name, task.agent_cli, &prompt) {
+                                Ok(()) => {
+                                    self.active_modal = None;
+                                }
+                                Err(e) => {
+                                    self.error_message =
+                                        Some(format!("Failed to send custom prompt: {}", e));
+                                }
+                            }
+                        } else {
+                            self.error_message =
+                                Some("No active session for this task".to_string());
+                        }
+                    }
+                }
+            }
+
+            Action::AddCustomPrompt { prompt } => {
+                if self.config.custom_prompts.len() < 5 {
+                    let backup = self.config.custom_prompts.clone();
+                    self.config.custom_prompts.push(prompt);
+                    match self.config.save() {
+                        Ok(()) => {
+                            if let Some(ModalKind::CustomPrompt(ref mut m)) = self.active_modal {
+                                m.update_prompts(self.config.custom_prompts.clone());
+                            }
+                        }
+                        Err(e) => {
+                            self.config.custom_prompts = backup;
+                            self.error_message = Some(format!("Failed to save config: {}", e));
+                        }
+                    }
+                }
+            }
+
+            Action::DeleteCustomPrompt { index } => {
+                if index < self.config.custom_prompts.len() {
+                    let backup = self.config.custom_prompts.clone();
+                    self.config.custom_prompts.remove(index);
+                    match self.config.save() {
+                        Ok(()) => {
+                            if let Some(ModalKind::CustomPrompt(ref mut m)) = self.active_modal {
+                                m.update_prompts(self.config.custom_prompts.clone());
+                            }
+                        }
+                        Err(e) => {
+                            self.config.custom_prompts = backup;
+                            self.error_message = Some(format!("Failed to save config: {}", e));
                         }
                     }
                 }
@@ -1323,6 +1414,9 @@ impl App {
                 ModalKind::Sort(m) => m.render(frame, centered_rect(40, 30, area)),
                 ModalKind::ConfirmDelete(m) => m.render(frame, centered_rect(50, 35, area)),
                 ModalKind::Settings(m) => m.render(frame, area),
+                ModalKind::CustomPrompt(m) => {
+                    m.render(frame, centered_rect_with_max(80, 60, 100, 20, area))
+                }
             }
         }
     }

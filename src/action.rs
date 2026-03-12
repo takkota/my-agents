@@ -98,6 +98,18 @@ pub enum Action {
         task_id: String,
         project_id: String,
     },
+    OpenCustomPrompt,
+    SendCustomPrompt {
+        task_id: String,
+        project_id: String,
+        prompt: String,
+    },
+    AddCustomPrompt {
+        prompt: String,
+    },
+    DeleteCustomPrompt {
+        index: usize,
+    },
 
     // System
     Tick,

@@ -1,6 +1,7 @@
 pub mod create_project;
 pub mod create_task;
 pub mod confirm_delete;
+pub mod custom_prompt;
 pub mod set_status;
 pub mod set_link;
 pub mod select_link;
