@@ -79,7 +79,15 @@ impl Config {
         let config_path = data_dir.join("config.toml");
         if config_path.exists() {
             let content = fs::read_to_string(&config_path)?;
-            let config: Config = toml::from_str(&content)?;
+            let mut config: Config = toml::from_str(&content)?;
+            // Normalize custom_prompts: trim, remove empty, enforce max 5
+            config.custom_prompts = config
+                .custom_prompts
+                .into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .take(5)
+                .collect();
             Ok(config)
         } else {
             Ok(Config::default())

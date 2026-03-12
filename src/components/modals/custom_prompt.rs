@@ -86,8 +86,15 @@ impl Modal for CustomPromptModal {
                             }));
                         }
                     }
-                    // Ctrl+D deletes selected prompt
+                    // Ctrl+D deletes selected prompt (also handles Delete key due to Ctrl+D remap)
                     KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if !self.prompts.is_empty() {
+                            return Ok(Some(Action::DeleteCustomPrompt {
+                                index: self.selected,
+                            }));
+                        }
+                    }
+                    KeyCode::Delete => {
                         if !self.prompts.is_empty() {
                             return Ok(Some(Action::DeleteCustomPrompt {
                                 index: self.selected,
@@ -159,10 +166,12 @@ impl Modal for CustomPromptModal {
                 .iter()
                 .enumerate()
                 .map(|(i, prompt)| {
-                    // Truncate display if too long
-                    let display = if prompt.len() > (area.width as usize).saturating_sub(8) {
-                        let max = (area.width as usize).saturating_sub(11);
-                        format!("{}...", &prompt[..max.min(prompt.len())])
+                    // Truncate display if too long (char-safe for multibyte)
+                    let max_chars = (area.width as usize).saturating_sub(8);
+                    let char_count = prompt.chars().count();
+                    let display = if char_count > max_chars {
+                        let truncated: String = prompt.chars().take(max_chars.saturating_sub(3)).collect();
+                        format!("{}...", truncated)
                     } else {
                         prompt.clone()
                     };

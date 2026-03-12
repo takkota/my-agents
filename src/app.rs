@@ -878,7 +878,6 @@ impl App {
                 project_id,
                 prompt,
             } => {
-                self.active_modal = None;
                 let task = self
                     .tasks_by_project
                     .get(project_id.as_str())
@@ -894,11 +893,14 @@ impl App {
                             .clone()
                             .unwrap_or_else(|| TmuxService::session_name(&project_id, &task_id));
                         if self.tmux.session_exists(&session_name) {
-                            if let Err(e) =
-                                self.tmux.send_prompt(&session_name, task.agent_cli, &prompt)
-                            {
-                                self.error_message =
-                                    Some(format!("Failed to send custom prompt: {}", e));
+                            match self.tmux.send_prompt(&session_name, task.agent_cli, &prompt) {
+                                Ok(()) => {
+                                    self.active_modal = None;
+                                }
+                                Err(e) => {
+                                    self.error_message =
+                                        Some(format!("Failed to send custom prompt: {}", e));
+                                }
                             }
                         } else {
                             self.error_message =
@@ -910,24 +912,36 @@ impl App {
 
             Action::AddCustomPrompt { prompt } => {
                 if self.config.custom_prompts.len() < 5 {
+                    let backup = self.config.custom_prompts.clone();
                     self.config.custom_prompts.push(prompt);
-                    if let Err(e) = self.config.save() {
-                        self.error_message = Some(format!("Failed to save config: {}", e));
-                    }
-                    if let Some(ModalKind::CustomPrompt(ref mut m)) = self.active_modal {
-                        m.update_prompts(self.config.custom_prompts.clone());
+                    match self.config.save() {
+                        Ok(()) => {
+                            if let Some(ModalKind::CustomPrompt(ref mut m)) = self.active_modal {
+                                m.update_prompts(self.config.custom_prompts.clone());
+                            }
+                        }
+                        Err(e) => {
+                            self.config.custom_prompts = backup;
+                            self.error_message = Some(format!("Failed to save config: {}", e));
+                        }
                     }
                 }
             }
 
             Action::DeleteCustomPrompt { index } => {
                 if index < self.config.custom_prompts.len() {
+                    let backup = self.config.custom_prompts.clone();
                     self.config.custom_prompts.remove(index);
-                    if let Err(e) = self.config.save() {
-                        self.error_message = Some(format!("Failed to save config: {}", e));
-                    }
-                    if let Some(ModalKind::CustomPrompt(ref mut m)) = self.active_modal {
-                        m.update_prompts(self.config.custom_prompts.clone());
+                    match self.config.save() {
+                        Ok(()) => {
+                            if let Some(ModalKind::CustomPrompt(ref mut m)) = self.active_modal {
+                                m.update_prompts(self.config.custom_prompts.clone());
+                            }
+                        }
+                        Err(e) => {
+                            self.config.custom_prompts = backup;
+                            self.error_message = Some(format!("Failed to save config: {}", e));
+                        }
                     }
                 }
             }
