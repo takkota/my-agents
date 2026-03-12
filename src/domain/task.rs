@@ -104,7 +104,7 @@ impl AgentCli {
     /// Returns the full launch command with CLI-specific flags.
     pub fn launch_command(&self) -> Option<String> {
         self.command().map(|cmd| match self {
-            AgentCli::Claude => format!("{} --enable-auto-mode", cmd),
+            AgentCli::Claude => format!("{} --permission-mode auto", cmd),
             _ => cmd.to_string(),
         })
     }
