@@ -171,7 +171,7 @@ cmd_list() {
 }
 
 cmd_create() {
-    local project_id="" name="" priority="P3" agent_cli="None" notes="" prompt="" run=false
+    local project_id="" name="" priority="P3" agent_cli="Claude" notes="" prompt="" run=false
     local -a links=()
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -630,7 +630,7 @@ Create options:
   --project, -p <id>    Project ID (auto-detected if in task dir)
   --name, -n <name>     Task name (required)
   --priority <P1-P5>    Priority (default: P3)
-  --agent <cli>         Agent CLI: Claude, Codex, None (default: None)
+  --agent <cli>         Agent CLI: Claude, Codex, None (default: Claude)
   --notes <text>        Initial notes
   --prompt <text>       Initial instructions for the agent
   --link <url>          Add a link (repeatable for multiple links)
