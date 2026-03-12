@@ -460,19 +460,7 @@ cmd_run() {
         task_id="${found#*/}"
     fi
 
-    local json
-    json="$(read_task "$project_id" "$task_id")"
-
-    # Check if task already has worktrees or tmux session
-    local has_worktrees has_session
-    has_worktrees="$(echo "$json" | jq '.worktrees | length')"
-    has_session="$(echo "$json" | jq -r '.tmux_session // empty')"
-
-    if [ "$has_worktrees" -gt 0 ] || [ -n "$has_session" ]; then
-        die "task ${task_id} already has worktrees or a tmux session. Use the TUI to manage it."
-    fi
-
-    # Delegate to my-agents setup-task (same as create --run)
+    # Delegate to my-agents setup-task; guard check is done on the Rust side
     local bin_path=""
     if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
         bin_path="${MY_AGENTS_BIN}"
@@ -528,38 +516,90 @@ cmd_delete() {
         fi
     fi
 
-    # Kill tmux session
+    local -a warnings=()
+
+    # Kill tmux session (validate prefix to prevent killing unrelated sessions)
     local tmux_session
     tmux_session="$(echo "$json" | jq -r '.tmux_session // empty')"
     if [ -n "$tmux_session" ]; then
-        tmux kill-session -t "$tmux_session" 2>/dev/null || true
+        if [[ "$tmux_session" == ma-* ]]; then
+            if ! tmux kill-session -t "$tmux_session" 2>/dev/null; then
+                warnings+=("tmux session '${tmux_session}' could not be killed (may not exist)")
+            fi
+        else
+            warnings+=("skipped killing tmux session '${tmux_session}': unexpected name prefix")
+        fi
     fi
 
     # Remove worktrees
     local worktree_count
     worktree_count="$(echo "$json" | jq '.worktrees | length')"
-    for i in $(seq 0 $((worktree_count - 1))); do
+    for ((i=0; i<worktree_count; i++)); do
         local wt_path upstream_path branch
         wt_path="$(echo "$json" | jq -r ".worktrees[$i].worktree_path")"
         upstream_path="$(echo "$json" | jq -r ".worktrees[$i].upstream_path")"
         branch="$(echo "$json" | jq -r ".worktrees[$i].branch")"
 
-        # Remove worktree
+        # Validate branch name prefix
+        if [[ "$branch" != task/* ]]; then
+            warnings+=("skipped branch deletion for '${branch}': unexpected prefix")
+            continue
+        fi
+
         if [ -n "$upstream_path" ] && [ -d "$upstream_path" ]; then
-            git -C "$upstream_path" worktree remove "$wt_path" --force 2>/dev/null || \
+            if ! git -C "$upstream_path" worktree remove "$wt_path" --force 2>/dev/null; then
                 git -C "$upstream_path" worktree prune 2>/dev/null || true
+                warnings+=("worktree '${wt_path}' force-pruned (graceful remove failed)")
+            fi
             # Delete branch (best-effort)
             git -C "$upstream_path" branch -D "$branch" 2>/dev/null || true
+        else
+            warnings+=("upstream repo '${upstream_path}' not found, skipped worktree cleanup")
         fi
     done
+
+    # Remove ~/.claude.json trust entries (best-effort, mirrors Rust cleanup_task)
+    local claude_json="${HOME}/.claude.json"
+    if [ -f "$claude_json" ] && command -v jq >/dev/null 2>&1; then
+        local task_dir="${PROJECTS_DIR}/${project_id}/tasks/${task_id}"
+        local updated
+        if updated="$(jq --arg prefix "$task_dir" '
+            if .trustedDirectories then
+                .trustedDirectories |= with_entries(select(.key | startswith($prefix) | not))
+            else . end
+        ' "$claude_json" 2>/dev/null)"; then
+            echo "$updated" > "$claude_json" 2>/dev/null || \
+                warnings+=("failed to update ~/.claude.json trust entries")
+        fi
+    fi
 
     # Delete task directory
     local task_dir="${PROJECTS_DIR}/${project_id}/tasks/${task_id}"
     if [ -d "$task_dir" ]; then
-        rm -rf "$task_dir"
+        if ! rm -rf "$task_dir"; then
+            warnings+=("failed to remove task directory '${task_dir}'")
+        fi
     fi
 
-    echo "{\"deleted\": true, \"task_id\": \"${task_id}\", \"project_id\": \"${project_id}\"}"
+    # Build result JSON with jq for proper escaping
+    local warnings_json="[]"
+    if [ ${#warnings[@]} -gt 0 ]; then
+        warnings_json="$(printf '%s\n' "${warnings[@]}" | jq -R . | jq -s .)"
+    fi
+    jq -n \
+        --argjson deleted true \
+        --arg task_id "$task_id" \
+        --arg project_id "$project_id" \
+        --argjson warnings "$warnings_json" \
+        '{deleted: $deleted, task_id: $task_id, project_id: $project_id, warnings: $warnings}'
+
+    # Exit non-zero if there were critical warnings (worktree/dir removal failures)
+    if [ ${#warnings[@]} -gt 0 ]; then
+        for w in "${warnings[@]}"; do
+            echo "warning: $w" >&2
+        done
+        return 1
+    fi
 }
 
 cmd_help() {
