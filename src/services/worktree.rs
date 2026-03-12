@@ -191,7 +191,7 @@ impl WorktreeService {
         let mut worktrees = Vec::new();
         for (repo_name, upstream_path) in repos {
             let worktree_path = task_dir.join(repo_name);
-            let branch = format!("task/{}/{}", &task_id[..task_id.len().min(6)], repo_name);
+            let branch = task_id[..task_id.len().min(6)].to_string();
 
             if let Err(e) = self.add_worktree(upstream_path, &worktree_path, &branch) {
                 // Rollback previously created worktrees
