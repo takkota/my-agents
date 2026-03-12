@@ -71,7 +71,7 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - All text input is UTF-8 safe (cursor tracks char indices, not byte indices)
 - Task IDs are first 8 chars of UUID v4
 - tmux session names follow pattern: `ma-{project_id}-{task_id_prefix}`
-- Worktree branches: `task/{task_id_6char}/{repo_name}`
+- Worktree branches: `{task_id_6char}` (first 6 chars of task ID, no slashes)
 - `.prompt_submitted` marker in task dir — created by `UserPromptSubmit` hook (Claude) or notify script (Codex) when user sends a prompt; triggers Todo/Completed/ActionRequired → InProgress
 - `.agent_stopped` marker in task dir — created by `Stop` hook (Claude) or notify script (Codex) when agent finishes responding; triggers InProgress → ActionRequired
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
