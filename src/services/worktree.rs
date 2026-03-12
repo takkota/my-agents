@@ -78,6 +78,10 @@ impl WorktreeService {
         Self
     }
 
+    /// Create a worktree directory without checking out files.
+    /// This avoids triggering post-checkout hooks, allowing files to be
+    /// copied into the worktree before checkout.
+    /// Call `checkout_worktree` afterwards to complete the setup.
     pub fn add_worktree(
         &self,
         upstream_repo: &Path,
@@ -104,12 +108,35 @@ impl WorktreeService {
             &[
                 "worktree",
                 "add",
+                "--no-checkout",
                 &target_dir.to_string_lossy(),
                 "-b",
                 branch,
                 start_point,
             ],
         )
+    }
+
+    /// Checkout files in an already-created worktree.
+    /// This triggers post-checkout hooks, so any files copied into the
+    /// worktree beforehand (e.g. `.env`) can be updated by hooks.
+    pub fn checkout_worktree(worktree_path: &Path, branch: &str) -> AppResult<()> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(worktree_path)
+            .args(["checkout", branch])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "git checkout failed in {:?}: {}",
+                worktree_path,
+                stderr.trim()
+            );
+        }
+        Ok(())
     }
 
     pub fn remove_worktree(&self, wt: &WorktreeInfo) -> AppResult<()> {

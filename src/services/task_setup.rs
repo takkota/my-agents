@@ -38,11 +38,15 @@ pub fn run_task_setup(
         .map(|r| (r.name.clone(), r.path.clone()))
         .collect();
 
-    // Create worktrees
+    // Create worktrees (3-phase: create without checkout → copy files → checkout)
+    // This ordering ensures that copied files (e.g. .env) are in place before
+    // post-checkout hooks run, so hooks can update them rather than having
+    // the copy overwrite hook-generated files.
     let worktree_svc = WorktreeService::new();
     let worktrees = if !repos.is_empty() {
         match worktree_svc.create_worktrees_for_task(input.task_dir, &input.task.id, &repos) {
             Ok(wts) => {
+                // Phase 2: Copy files into worktrees (before checkout)
                 if !input.project.worktree_copy_files.is_empty() {
                     for wt in &wts {
                         if let Err(e) = WorktreeService::copy_files_to_worktree(
@@ -57,7 +61,21 @@ pub fn run_task_setup(
                         }
                     }
                 }
-                wts
+                // Phase 3: Checkout (triggers post-checkout hooks)
+                // If checkout fails, remove the broken worktree and exclude it.
+                let mut checked_out = Vec::new();
+                for wt in wts {
+                    if let Err(e) = WorktreeService::checkout_worktree(&wt.worktree_path, &wt.branch) {
+                        append_error(
+                            &mut error_msg,
+                            &format!("Worktree checkout failed for {}: {}", wt.repo_name, e),
+                        );
+                        let _ = worktree_svc.remove_worktree(&wt);
+                    } else {
+                        checked_out.push(wt);
+                    }
+                }
+                checked_out
             }
             Err(e) => {
                 append_error(&mut error_msg, &format!("Worktree creation failed: {}", e));
