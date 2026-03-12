@@ -1216,13 +1216,16 @@ impl App {
                     .get(project_id.as_str())
                     .and_then(|tasks| tasks.iter().find(|t| t.id == *id));
                 if let Some(task) = task {
+                    let task_dir = self.store.task_dir(project_id, &task.id);
                     self.preview_panel.update_task_info(
+                        task_dir,
                         task.links.clone(),
                         task.notes.clone(),
                         task.initial_instructions.clone(),
                     );
                 } else {
-                    self.preview_panel.update_task_info(Vec::new(), None, None);
+                    let task_dir = self.store.task_dir(project_id, id);
+                    self.preview_panel.update_task_info(task_dir, Vec::new(), None, None);
                 }
             }
             Some(TreeItem::Project { id, name, .. }) => {
@@ -1277,7 +1280,7 @@ impl App {
                 );
             }
             None => {
-                self.preview_panel.update_task_info(Vec::new(), None, None);
+                self.preview_panel.clear_task_info();
             }
         }
     }

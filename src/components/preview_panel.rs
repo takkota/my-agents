@@ -36,6 +36,7 @@ pub struct TaskStats {
 pub struct PreviewPanel {
     content: String,
     current_session: Option<String>,
+    task_dir: Option<PathBuf>,
     task_links: Vec<TaskLink>,
     task_notes: Option<String>,
     task_initial_instructions: Option<String>,
@@ -47,6 +48,7 @@ impl PreviewPanel {
         Self {
             content: String::new(),
             current_session: None,
+            task_dir: None,
             task_links: Vec::new(),
             task_notes: None,
             task_initial_instructions: None,
@@ -54,15 +56,25 @@ impl PreviewPanel {
         }
     }
 
-    pub fn update_task_info(&mut self, links: Vec<TaskLink>, notes: Option<String>, initial_instructions: Option<String>) {
+    pub fn update_task_info(&mut self, task_dir: PathBuf, links: Vec<TaskLink>, notes: Option<String>, initial_instructions: Option<String>) {
+        self.task_dir = Some(task_dir);
         self.task_links = links;
         self.task_notes = notes;
         self.task_initial_instructions = initial_instructions;
         self.project_info = None;
     }
 
+    pub fn clear_task_info(&mut self) {
+        self.task_dir = None;
+        self.task_links = Vec::new();
+        self.task_notes = None;
+        self.task_initial_instructions = None;
+        self.project_info = None;
+    }
+
     pub fn update_project_info(&mut self, info: ProjectInfo) {
         self.project_info = Some(info);
+        self.task_dir = None;
         self.task_links = Vec::new();
         self.task_notes = None;
         self.task_initial_instructions = None;
@@ -87,14 +99,34 @@ impl PreviewPanel {
     }
 
     fn has_task_info(&self) -> bool {
-        !self.task_links.is_empty() || self.task_notes.is_some() || self.task_initial_instructions.is_some()
+        self.task_dir.is_some() || !self.task_links.is_empty() || self.task_notes.is_some() || self.task_initial_instructions.is_some()
     }
 
     fn build_task_info_lines(&self) -> Vec<Line<'_>> {
         let mut lines: Vec<Line> = Vec::new();
 
+        // Directory section
+        if let Some(task_dir) = &self.task_dir {
+            lines.push(Line::from(vec![Span::styled(
+                " Directory: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    task_dir.display().to_string(),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+        }
+
         // Links section
         if !self.task_links.is_empty() {
+            if !lines.is_empty() {
+                lines.push(Line::from(""));
+            }
             lines.push(Line::from(vec![Span::styled(
                 " Links: ",
                 Style::default()
