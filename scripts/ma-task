@@ -473,6 +473,13 @@ cmd_run() {
     local json
     json="$(read_task "$project_id" "$task_id")"
 
+    # Warn if agent_cli is None
+    local agent_cli
+    agent_cli="$(echo "$json" | jq -r '.agent_cli')"
+    if [ "$agent_cli" = "None" ]; then
+        die "No agent CLI configured for task '${task_id}'. Use 'ma-task update ${task_id} --agent Claude' to set one before running."
+    fi
+
     # If task already has worktrees or tmux session, report current state and exit
     local has_worktrees has_session
     has_worktrees="$(echo "$json" | jq '.worktrees | length')"
