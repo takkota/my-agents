@@ -726,6 +726,23 @@ ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--a
 ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
 ```
 
+### Run an existing task
+
+```bash
+ma-task run <task-id>
+```
+
+Sets up worktree, tmux session, and launches the agent for an existing task (same as `create --run` but for tasks that already exist).
+
+### Delete a task
+
+```bash
+ma-task delete <task-id>
+ma-task delete <task-id> --force
+```
+
+Deletes a task and cleans up its worktrees and tmux session. Use `--force` to skip confirmation.
+
 ### List all projects
 
 ```bash

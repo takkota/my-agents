@@ -439,6 +439,129 @@ cmd_projects() {
     echo "]"
 }
 
+cmd_run() {
+    local task_id="${1:?usage: ma-task run <task-id>}"
+    shift
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    # Check if task already has worktrees or tmux session
+    local has_worktrees has_session
+    has_worktrees="$(echo "$json" | jq '.worktrees | length')"
+    has_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+
+    if [ "$has_worktrees" -gt 0 ] || [ -n "$has_session" ]; then
+        die "task ${task_id} already has worktrees or a tmux session. Use the TUI to manage it."
+    fi
+
+    # Delegate to my-agents setup-task (same as create --run)
+    local bin_path=""
+    if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
+        bin_path="${MY_AGENTS_BIN}"
+    elif command -v my-agents >/dev/null 2>&1; then
+        bin_path="my-agents"
+    else
+        die "my-agents binary not found in PATH; install with 'cargo install --path .' or set MY_AGENTS_BIN"
+    fi
+    exec "$bin_path" setup-task --project "$project_id" --task "$task_id"
+}
+
+cmd_delete() {
+    local task_id="${1:?usage: ma-task delete <task-id> [--force]}"; shift
+    local force=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force|-f) force=true; shift ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+    local task_name
+    task_name="$(echo "$json" | jq -r '.name')"
+
+    # Confirmation prompt (unless --force)
+    if [ "$force" != true ]; then
+        echo "Delete task \"${task_name}\" (${task_id})?" >&2
+        echo "This will remove worktrees, tmux session, and all task data." >&2
+        printf "Type 'yes' to confirm: " >&2
+        local confirm
+        read -r confirm
+        if [ "$confirm" != "yes" ]; then
+            die "aborted"
+        fi
+    fi
+
+    # Kill tmux session
+    local tmux_session
+    tmux_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+    if [ -n "$tmux_session" ]; then
+        tmux kill-session -t "$tmux_session" 2>/dev/null || true
+    fi
+
+    # Remove worktrees
+    local worktree_count
+    worktree_count="$(echo "$json" | jq '.worktrees | length')"
+    for i in $(seq 0 $((worktree_count - 1))); do
+        local wt_path upstream_path branch
+        wt_path="$(echo "$json" | jq -r ".worktrees[$i].worktree_path")"
+        upstream_path="$(echo "$json" | jq -r ".worktrees[$i].upstream_path")"
+        branch="$(echo "$json" | jq -r ".worktrees[$i].branch")"
+
+        # Remove worktree
+        if [ -n "$upstream_path" ] && [ -d "$upstream_path" ]; then
+            git -C "$upstream_path" worktree remove "$wt_path" --force 2>/dev/null || \
+                git -C "$upstream_path" worktree prune 2>/dev/null || true
+            # Delete branch (best-effort)
+            git -C "$upstream_path" branch -D "$branch" 2>/dev/null || true
+        fi
+    done
+
+    # Delete task directory
+    local task_dir="${PROJECTS_DIR}/${project_id}/tasks/${task_id}"
+    if [ -d "$task_dir" ]; then
+        rm -rf "$task_dir"
+    fi
+
+    echo "{\"deleted\": true, \"task_id\": \"${task_id}\", \"project_id\": \"${project_id}\"}"
+}
+
 cmd_help() {
     cat <<'HELP'
 ma-task: Task management CLI for my-agents
@@ -454,6 +577,8 @@ Commands:
   update <task-id> [options]       Update task fields
   status <task-id> <status>        Change task status
   link <task-id> <url> [--name n]  Add a link to task
+  run <task-id>                    Set up worktree, tmux, and launch agent for existing task
+  delete <task-id> [--force]       Delete task and clean up resources
   help                             Show this help
 
 Create options:
@@ -490,6 +615,8 @@ case "$cmd" in
     update)   cmd_update "$@" ;;
     status)   cmd_status "$@" ;;
     link)     cmd_link "$@" ;;
+    run)      cmd_run "$@" ;;
+    delete)   cmd_delete "$@" ;;
     help|--help|-h) cmd_help ;;
     *) die "unknown command: $cmd (run 'ma-task help')" ;;
 esac
