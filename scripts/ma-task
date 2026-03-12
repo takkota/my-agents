@@ -278,7 +278,7 @@ cmd_create() {
 }
 
 cmd_update() {
-    local task_id="${1:?usage: ma-task update <task-id> [--name ...] [--priority ...] [--notes ...]}"; shift
+    local task_id="${1:?usage: ma-task update <task-id> [--name ...] [--priority ...] [--notes ...] [--agent ...]}"; shift
 
     # Resolve task
     local project_id=""
@@ -314,6 +314,16 @@ cmd_update() {
                 shift 2 ;;
             --notes)
                 json="$(echo "$json" | jq --arg v "$2" '.notes = $v')"
+                shift 2 ;;
+            --agent)
+                local agent_val="$2"
+                case "$agent_val" in
+                    Claude|claude) agent_val="Claude" ;;
+                    Codex|codex) agent_val="Codex" ;;
+                    None|none) agent_val="None" ;;
+                    *) die "invalid agent: $agent_val (use Claude, Codex, or None)" ;;
+                esac
+                json="$(echo "$json" | jq --arg v "$agent_val" '.agent_cli = $v')"
                 shift 2 ;;
             *) die "unknown option: $1" ;;
         esac
@@ -640,6 +650,7 @@ Update options:
   --name, -n <name>     New task name
   --priority <P1-P5>    New priority
   --notes <text>        New notes
+  --agent <cli>         Agent CLI: Claude, Codex, None
 
 Status values:
   Todo, InProgress, ActionRequired, Completed, Blocked
