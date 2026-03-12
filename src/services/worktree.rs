@@ -120,11 +120,11 @@ impl WorktreeService {
     /// Checkout files in an already-created worktree.
     /// This triggers post-checkout hooks, so any files copied into the
     /// worktree beforehand (e.g. `.env`) can be updated by hooks.
-    pub fn checkout_worktree(worktree_path: &Path) -> AppResult<()> {
+    pub fn checkout_worktree(worktree_path: &Path, branch: &str) -> AppResult<()> {
         let output = Command::new("git")
             .arg("-C")
             .arg(worktree_path)
-            .arg("checkout")
+            .args(["checkout", branch])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()?;

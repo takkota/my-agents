@@ -62,15 +62,20 @@ pub fn run_task_setup(
                     }
                 }
                 // Phase 3: Checkout (triggers post-checkout hooks)
-                for wt in &wts {
-                    if let Err(e) = WorktreeService::checkout_worktree(&wt.worktree_path) {
+                // If checkout fails, remove the broken worktree and exclude it.
+                let mut checked_out = Vec::new();
+                for wt in wts {
+                    if let Err(e) = WorktreeService::checkout_worktree(&wt.worktree_path, &wt.branch) {
                         append_error(
                             &mut error_msg,
                             &format!("Worktree checkout failed for {}: {}", wt.repo_name, e),
                         );
+                        let _ = worktree_svc.remove_worktree(&wt);
+                    } else {
+                        checked_out.push(wt);
                     }
                 }
-                wts
+                checked_out
             }
             Err(e) => {
                 append_error(&mut error_msg, &format!("Worktree creation failed: {}", e));
