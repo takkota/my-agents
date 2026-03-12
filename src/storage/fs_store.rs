@@ -723,7 +723,7 @@ ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--a
 ### Update task fields
 
 ```bash
-ma-task update {task_id} --name "new name" --priority P2 --notes "some notes"
+ma-task update {task_id} --name "new name" --priority P2 --notes "some notes" --agent Claude
 ```
 
 ### Run an existing task
