@@ -48,7 +48,7 @@ ma-task create --name <name> [options]
 | `--project` | `-p` | \* | CWD から自動検出 | プロジェクト ID |
 | `--name` | `-n` | Yes | — | タスク名 |
 | `--priority` | — | No | `P3` | `P1` `P2` `P3` `P4` `P5` |
-| `--agent` | — | No | `None` | `Claude` `Codex` `None` |
+| `--agent` | — | No | `Claude` | `Claude` `Codex` `None` |
 | `--notes` | — | No | `null` | メモ |
 | `--prompt` | — | No | `null` | エージェントへの初期プロンプト |
 | `--link` | — | No | — | リンク URL (複数回指定可) |
