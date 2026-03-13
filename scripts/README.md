@@ -154,8 +154,8 @@ ma-task run <task-id>
 
 既存タスクに対して worktree 作成・tmux セッション起動・エージェント起動を行う。`create --run` と同等の処理を、既に作成済みのタスクに対して実行する。
 
-- タスクに既に worktree や tmux セッションがある場合は、現在の状態を JSON で出力して正常終了する（再セットアップは行わない）
-- 内部的には `my-agents setup-task` を `exec` で呼び出す
+- タスクに worktree や tmux セッションが**ない**場合は `my-agents setup-task` に委譲して新規セットアップを行う
+- タスクに既に worktree や tmux セッションがある場合は `my-agents launch-agent` に委譲し、既存セッション内でエージェントを起動する（initial instructions + links 付き）。セッションが消失していた場合は自動再作成する
 
 **出力 (新規セットアップ時):** `setup-task` の出力 (worktree パス・tmux セッション名を含む JSON)
 
@@ -163,11 +163,10 @@ ma-task run <task-id>
 
 ```json
 {
-  "already_running": true,
   "task_id": "a1b2c3d4",
   "project_id": "myproj",
   "tmux_session": "ma-myproj-a1b2c3",
-  "worktrees": ["/path/to/worktree"]
+  "agent_launched": true
 }
 ```
 
