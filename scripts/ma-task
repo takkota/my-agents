@@ -266,6 +266,10 @@ cmd_create() {
     echo "$json"
 
     if [ "$run" = true ]; then
+        # initial_instructions is required for run
+        if [ -z "$prompt" ]; then
+            die "--prompt is required when using --run. Provide initial instructions for the agent."
+        fi
         local bin_path=""
         if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
             bin_path="${MY_AGENTS_BIN}"
@@ -279,7 +283,7 @@ cmd_create() {
 }
 
 cmd_update() {
-    local task_id="${1:?usage: ma-task update <task-id> [--name ...] [--priority ...] [--notes ...] [--agent ...]}"; shift
+    local task_id="${1:?usage: ma-task update <task-id> [--name ...] [--priority ...] [--notes ...] [--prompt ...] [--agent ...]}"; shift
 
     # Resolve task
     local project_id=""
@@ -325,6 +329,9 @@ cmd_update() {
                     *) die "invalid agent: $agent_val (use Claude, Codex, or None)" ;;
                 esac
                 json="$(echo "$json" | jq --arg v "$agent_val" '.agent_cli = $v')"
+                shift 2 ;;
+            --prompt)
+                json="$(echo "$json" | jq --arg v "$2" '.initial_instructions = $v')"
                 shift 2 ;;
             *) die "unknown option: $1" ;;
         esac
@@ -531,6 +538,13 @@ cmd_run() {
         die "No agent CLI configured for task '${task_id}'. Use 'ma-task update ${task_id} --agent Claude' to set one before running."
     fi
 
+    # initial_instructions is required for run
+    local initial_instructions
+    initial_instructions="$(echo "$json" | jq -r '.initial_instructions // empty')"
+    if [ -z "$initial_instructions" ]; then
+        die "initial_instructions is required to run a task. Use 'ma-task update ${task_id} --prompt <text>' to set initial instructions before running."
+    fi
+
     # If task already has worktrees or tmux session, report current state and exit
     local has_worktrees has_session
     has_worktrees="$(echo "$json" | jq '.worktrees | length')"
@@ -703,14 +717,15 @@ Create options:
   --priority <P1-P5>    Priority (default: P3)
   --agent <cli>         Agent CLI: Claude, Codex, None (default: Claude)
   --notes <text>        Initial notes
-  --prompt <text>       Initial instructions for the agent
+  --prompt <text>       Initial instructions for the agent (required for --run)
   --link <url>          Add a link (repeatable for multiple links)
-  --run                 Set up worktree, tmux session, and launch agent immediately
+  --run                 Set up worktree, tmux session, and launch agent immediately (requires --prompt)
 
 Update options:
   --name, -n <name>     New task name
   --priority <P1-P5>    New priority
   --notes <text>        New notes
+  --prompt <text>       Update initial instructions
   --agent <cli>         Agent CLI: Claude, Codex, None
 
 Status values:

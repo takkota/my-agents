@@ -106,6 +106,17 @@ fn cmd_setup_task(args: &[String]) -> AppResult<()> {
         .find(|t| t.id == task_id)
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", task_id))?;
 
+    // initial_instructions is required to run a task
+    match &task.initial_instructions {
+        Some(s) if !s.trim().is_empty() => {}
+        _ => {
+            anyhow::bail!(
+                "Task {} has no initial_instructions. Set them with 'ma-task update {} --prompt <text>' before running.",
+                task_id, task_id
+            );
+        }
+    }
+
     // Guard against re-running setup on a task that already has worktrees or a session
     if !task.worktrees.is_empty() || task.tmux_session.is_some() {
         anyhow::bail!(
@@ -202,6 +213,17 @@ fn cmd_launch_agent(args: &[String]) -> AppResult<()> {
 
     if task.agent_cli == domain::task::AgentCli::None {
         anyhow::bail!("Task {} has no agent CLI configured", task_id);
+    }
+
+    // initial_instructions is required to launch an agent
+    match &task.initial_instructions {
+        Some(s) if !s.trim().is_empty() => {}
+        _ => {
+            anyhow::bail!(
+                "Task {} has no initial_instructions. Set them with 'ma-task update {} --prompt <text>' before running.",
+                task_id, task_id
+            );
+        }
     }
 
     let session_name = task
