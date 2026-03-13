@@ -6,6 +6,7 @@ use crate::components::modals::custom_prompt::CustomPromptModal;
 use crate::components::modals::edit_item::{EditItemModal, EditProjectModal, EditTaskModal};
 use crate::components::modals::filter::FilterModal;
 use crate::components::modals::select_link::SelectLinkModal;
+use crate::components::modals::select_preview_url::SelectPreviewUrlModal;
 use crate::components::modals::set_link::SetLinkModal;
 use crate::components::modals::set_status::SetStatusModal;
 use crate::components::modals::settings::SettingsModal;
@@ -98,6 +99,7 @@ pub enum ModalKind {
     SetStatus(SetStatusModal),
     SetLink(SetLinkModal),
     SelectLink(SelectLinkModal),
+    SelectPreviewUrl(SelectPreviewUrlModal),
     Filter(FilterModal),
     Sort(SortModal),
     ConfirmDelete(ConfirmDeleteModal),
@@ -261,6 +263,7 @@ impl App {
                 ModalKind::SetLink(m) => m.handle_paste(text),
                 ModalKind::SetStatus(m) => m.handle_paste(text),
                 ModalKind::SelectLink(m) => m.handle_paste(text),
+                ModalKind::SelectPreviewUrl(m) => m.handle_paste(text),
                 ModalKind::Filter(m) => m.handle_paste(text),
                 ModalKind::Sort(m) => m.handle_paste(text),
                 ModalKind::ConfirmDelete(m) => m.handle_paste(text),
@@ -301,6 +304,7 @@ impl App {
                 ModalKind::SetStatus(m) => m.handle_key(key),
                 ModalKind::SetLink(m) => m.handle_key(key),
                 ModalKind::SelectLink(m) => m.handle_key(key),
+                ModalKind::SelectPreviewUrl(m) => m.handle_key(key),
                 ModalKind::Filter(m) => m.handle_key(key),
                 ModalKind::Sort(m) => m.handle_key(key),
                 ModalKind::ConfirmDelete(m) => m.handle_key(key),
@@ -388,6 +392,9 @@ impl App {
                     }));
                 }
             }
+            KeyCode::Char('v') => {
+                return Ok(Some(Action::OpenPreviewUrl));
+            }
             KeyCode::Char('U') => {
                 return Ok(Some(Action::OpenCustomPrompt));
             }
@@ -470,6 +477,8 @@ impl App {
                             let current_copy_files: Vec<String> = project
                                 .map(|p| p.worktree_copy_files.clone())
                                 .unwrap_or_default();
+                            let current_dev_env_prompt: Option<String> =
+                                project.and_then(|p| p.dev_environment_prompt.clone());
 
                             self.active_modal = Some(ModalKind::EditItem(EditItemModal::Project(
                                 EditProjectModal::new(
@@ -479,6 +488,7 @@ impl App {
                                     self.available_repos.clone(),
                                     selected_repos,
                                     current_copy_files,
+                                    current_dev_env_prompt,
                                 ),
                             )));
                         }
@@ -515,6 +525,32 @@ impl App {
                     self.task_tree.selected_item().cloned()
                 {
                     self.active_modal = Some(ModalKind::SetLink(SetLinkModal::new(id, project_id)));
+                }
+            }
+            Action::OpenPreviewUrl => {
+                if let Some(TreeItem::Task { id, project_id, .. }) =
+                    self.task_tree.selected_item()
+                {
+                    if let Some(tasks) = self.tasks_by_project.get(project_id.as_str()) {
+                        if let Some(task) = tasks.iter().find(|t| t.id == *id) {
+                            match task.preview_urls.len() {
+                                0 => {}
+                                1 => {
+                                    return self.update(Action::OpenLinkInBrowser {
+                                        url: task.preview_urls[0].url.clone(),
+                                    });
+                                }
+                                _ => {
+                                    self.active_modal =
+                                        Some(ModalKind::SelectPreviewUrl(
+                                            SelectPreviewUrlModal::new(
+                                                task.preview_urls.clone(),
+                                            ),
+                                        ));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Action::OpenFilter => {
@@ -603,6 +639,7 @@ impl App {
                 description,
                 repos,
                 worktree_copy_files,
+                dev_environment_prompt,
             } => {
                 // Check for duplicate project ID
                 if self.projects.iter().any(|p| p.id == name) {
@@ -620,6 +657,7 @@ impl App {
                         .collect(),
                     description,
                     worktree_copy_files,
+                    dev_environment_prompt,
                     created_at: now,
                     updated_at: now,
                 };
@@ -635,6 +673,7 @@ impl App {
                 description,
                 repos,
                 worktree_copy_files,
+                dev_environment_prompt,
             } => {
                 if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
                     let mut updated = project;
@@ -645,6 +684,7 @@ impl App {
                         .map(|(n, p)| RepoRef { name: n, path: p })
                         .collect();
                     updated.worktree_copy_files = worktree_copy_files;
+                    updated.dev_environment_prompt = dev_environment_prompt;
                     updated.updated_at = Utc::now();
                     self.store.save_project(&updated)?;
                 }
@@ -1133,6 +1173,7 @@ impl App {
             agent_cli,
             worktrees: Vec::new(),
             links,
+            preview_urls: Vec::new(),
             notes,
             initial_instructions: initial_instructions.clone(),
             tmux_session: None,
@@ -1410,6 +1451,7 @@ impl App {
                 ModalKind::SetStatus(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::SetLink(m) => m.render(frame, centered_rect(50, 30, area)),
                 ModalKind::SelectLink(m) => m.render(frame, centered_rect(50, 40, area)),
+                ModalKind::SelectPreviewUrl(m) => m.render(frame, centered_rect(50, 40, area)),
                 ModalKind::Filter(m) => m.render(frame, centered_rect(40, 40, area)),
                 ModalKind::Sort(m) => m.render(frame, centered_rect(40, 30, area)),
                 ModalKind::ConfirmDelete(m) => m.render(frame, centered_rect(50, 35, area)),

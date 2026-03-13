@@ -5,6 +5,7 @@ pub mod custom_prompt;
 pub mod set_status;
 pub mod set_link;
 pub mod select_link;
+pub mod select_preview_url;
 pub mod edit_item;
 pub mod filter;
 pub mod sort;

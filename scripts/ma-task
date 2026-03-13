@@ -254,6 +254,7 @@ cmd_create() {
             agent_cli: $agent,
             worktrees: [],
             links: $links,
+            preview_urls: [],
             notes: $notes,
             initial_instructions: $prompt,
             tmux_session: null,
@@ -428,6 +429,56 @@ cmd_link() {
             --arg now "$(now_iso)" \
             '.links += [{"url": $url, "display_name": null}] | .updated_at = $now')"
     fi
+    write_task "$project_id" "$task_id" "$json"
+    echo "$json"
+}
+
+cmd_preview_url() {
+    local task_id="${1:?usage: ma-task preview-url <task-id> <url> --name <service-name>}"
+    local url="${2:?usage: ma-task preview-url <task-id> <url> --name <service-name>}"
+    shift 2
+
+    local service_name=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name|-n) service_name="${2:?--name requires value}"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    [ -n "$service_name" ] || die "--name <service-name> is required"
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    # Ensure preview_urls field exists
+    json="$(echo "$json" | jq 'if .preview_urls == null then .preview_urls = [] else . end')"
+
+    # Upsert: update existing entry with same service_name, or add new
+    json="$(echo "$json" | jq --arg sn "$service_name" --arg url "$url" \
+        --arg now "$(now_iso)" \
+        'if (.preview_urls | any(.service_name == $sn))
+         then .preview_urls = [.preview_urls[] | if .service_name == $sn then .url = $url else . end]
+         else .preview_urls += [{"service_name": $sn, "url": $url}]
+         end | .updated_at = $now')"
+
     write_task "$project_id" "$task_id" "$json"
     echo "$json"
 }
@@ -639,6 +690,7 @@ Commands:
   update <task-id> [options]       Update task fields
   status <task-id> <status>        Change task status
   link <task-id> <url> [--name n]  Add a link to task
+  preview-url <id> <url> --name n Register a preview URL for task
   run <task-id>                    Set up worktree, tmux, and launch agent for existing task
   delete <task-id>                 Delete task and clean up resources
   help                             Show this help
@@ -677,8 +729,9 @@ case "$cmd" in
     create)   cmd_create "$@" ;;
     update)   cmd_update "$@" ;;
     status)   cmd_status "$@" ;;
-    link)     cmd_link "$@" ;;
-    run)      cmd_run "$@" ;;
+    link)        cmd_link "$@" ;;
+    preview-url) cmd_preview_url "$@" ;;
+    run)         cmd_run "$@" ;;
     delete)   cmd_delete "$@" ;;
     help|--help|-h) cmd_help ;;
     *) die "unknown command: $cmd (run 'ma-task help')" ;;

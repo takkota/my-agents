@@ -228,7 +228,7 @@ impl FsStore {
         force_remove_dir_all(&dir)
     }
 
-    pub fn write_agent_config_files(&self, task: &Task, pr_prompt: &str) -> AppResult<()> {
+    pub fn write_agent_config_files(&self, task: &Task, pr_prompt: &str, project: Option<&Project>) -> AppResult<()> {
         let dir = self.task_dir(&task.project_id, &task.id);
 
         // Write CLAUDE.md with references and skill trigger
@@ -312,6 +312,35 @@ impl FsStore {
         if task.agent_cli == crate::domain::task::AgentCli::Codex {
             self.write_codex_skill(task)?;
             self.write_codex_notify(task)?;
+        }
+
+        // Write dev-environment skill if project has dev_environment_prompt
+        let dev_env_prompt = project.and_then(|p| p.dev_environment_prompt.as_deref());
+        if let Some(prompt) = dev_env_prompt {
+            if task.agent_cli == crate::domain::task::AgentCli::Claude {
+                Self::write_dev_env_skill_claude(&dir, task, prompt)?;
+                // Append dev-environment skill reference to CLAUDE.md
+                let claude_md_path = dir.join("CLAUDE.md");
+                let mut content = if claude_md_path.exists() {
+                    fs::read_to_string(&claude_md_path)?
+                } else {
+                    String::new()
+                };
+                content.push_str("\n## Dev Environment\nUse the `/dev-environment` skill to start the development server and register preview URLs.\n");
+                fs::write(&claude_md_path, content)?;
+            }
+            if task.agent_cli == crate::domain::task::AgentCli::Codex {
+                Self::write_dev_env_skill_codex(&dir, task, prompt)?;
+                // Append dev-environment skill reference to AGENTS.md
+                let agents_md_path = dir.join("AGENTS.md");
+                let mut content = if agents_md_path.exists() {
+                    fs::read_to_string(&agents_md_path)?
+                } else {
+                    String::new()
+                };
+                content.push_str("\n## Dev Environment\nUse the `$dev-environment` skill to start the development server and register preview URLs.\n");
+                fs::write(&agents_md_path, content)?;
+            }
         }
 
         // Copy project-level skills to task directory so they are discoverable
@@ -702,6 +731,17 @@ ma-task link {task_id} <url>
 ma-task link {task_id} <url> --name "PR #123"
 ```
 
+### Register a preview URL
+
+```bash
+ma-task preview-url {task_id} <url> --name <service-name>
+```
+
+Example:
+```bash
+ma-task preview-url {task_id} http://localhost:3000 --name web
+```
+
 ### Get a specific task
 
 ```bash
@@ -799,6 +839,86 @@ ma-task projects
         Ok(())
     }
 
+    /// Generate the body for the dev-environment skill.
+    fn dev_env_skill_body(task: &Task, prompt: &str) -> String {
+        format!(
+            r#"# Dev Environment Skill
+
+You are working inside a **my-agents** managed session.
+
+- **Task ID**: `{task_id}`
+- **Project ID**: `{project_id}`
+
+## How to start the dev environment
+
+{prompt}
+
+## Registering Preview URLs
+
+After starting the development server, register the preview URL(s) so the user can open them from the TUI.
+
+Use the `ma-task` command to register each service's preview URL:
+
+```bash
+ma-task preview-url {task_id} <url> --name <service-name>
+```
+
+For example:
+```bash
+ma-task preview-url {task_id} http://localhost:3000 --name web
+ma-task preview-url {task_id} http://localhost:8080 --name api
+```
+
+## Guidelines
+
+- Start the dev environment as instructed above.
+- Register all preview URLs after the services are running.
+- If a service restarts on a different port, update the preview URL.
+"#,
+            task_id = task.id,
+            project_id = task.project_id,
+            prompt = prompt,
+        )
+    }
+
+    /// Write `.claude/skills/dev-environment/SKILL.md` in the task directory.
+    fn write_dev_env_skill_claude(dir: &std::path::Path, task: &Task, prompt: &str) -> AppResult<()> {
+        let skill_dir = dir.join(".claude").join("skills").join("dev-environment");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: dev-environment\n\
+             description: \"Use to start the development environment and register preview URLs for this project.\"\n\
+             allowed-tools: Bash\n\
+             ---\n\n{}",
+            Self::dev_env_skill_body(task, prompt),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
+    /// Write `.agents/skills/dev-environment/SKILL.md` in the task directory for Codex.
+    fn write_dev_env_skill_codex(dir: &std::path::Path, task: &Task, prompt: &str) -> AppResult<()> {
+        let skill_dir = dir
+            .join(".agents")
+            .join("skills")
+            .join("dev-environment");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: dev-environment\n\
+             description: \"Use to start the development environment and register preview URLs for this project.\"\n\
+             ---\n\n{}",
+            Self::dev_env_skill_body(task, prompt),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
     pub fn ensure_quickstart(&self) -> AppResult<()> {
         let projects = self.list_projects()?;
         if !projects.is_empty() {
@@ -818,6 +938,7 @@ ma-task projects
             }],
             description: None,
             worktree_copy_files: Vec::new(),
+            dev_environment_prompt: None,
             created_at: now,
             updated_at: now,
         };
@@ -833,6 +954,7 @@ ma-task projects
             agent_cli: crate::domain::task::AgentCli::None,
             worktrees: vec![],
             links: vec![],
+            preview_urls: vec![],
             notes: Some(
                 "Welcome to my-agents!\n\
                  \n\

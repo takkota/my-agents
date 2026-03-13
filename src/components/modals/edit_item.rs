@@ -43,6 +43,7 @@ enum ProjectField {
     Name,
     Description,
     CopyFiles,
+    DevEnvPrompt,
     Repos,
 }
 
@@ -51,6 +52,7 @@ pub struct EditProjectModal {
     name_input: TextInput,
     description_input: TextInput,
     copy_files_input: TextInput,
+    dev_env_prompt_input: TextArea,
     repo_list: MultiSelectList<PathBuf>,
     current_field: ProjectField,
 }
@@ -63,6 +65,7 @@ impl EditProjectModal {
         available_repos: Vec<PathBuf>,
         selected_repos: Vec<PathBuf>,
         current_copy_files: Vec<String>,
+        current_dev_env_prompt: Option<String>,
     ) -> Self {
         let mut name_input = TextInput::new("Project Name").with_value(&current_name);
         name_input.focused = true;
@@ -73,6 +76,9 @@ impl EditProjectModal {
         let copy_files_str = current_copy_files.join(", ");
         let copy_files_input = TextInput::new("Worktree Copy Files (comma-separated, e.g. .env,.env.local)")
             .with_value(&copy_files_str);
+
+        let dev_env_prompt_input = TextArea::new("Dev Environment Prompt (optional)")
+            .with_value(current_dev_env_prompt.as_deref().unwrap_or(""));
 
         let repo_items: Vec<(String, PathBuf)> = available_repos
             .into_iter()
@@ -94,6 +100,7 @@ impl EditProjectModal {
             name_input,
             description_input,
             copy_files_input,
+            dev_env_prompt_input,
             repo_list,
             current_field: ProjectField::Name,
         }
@@ -103,6 +110,7 @@ impl EditProjectModal {
         self.name_input.focused = false;
         self.description_input.focused = false;
         self.copy_files_input.focused = false;
+        self.dev_env_prompt_input.focused = false;
         self.repo_list.focused = false;
         self.current_field = if forward {
             match self.current_field {
@@ -115,6 +123,10 @@ impl EditProjectModal {
                     ProjectField::CopyFiles
                 }
                 ProjectField::CopyFiles => {
+                    self.dev_env_prompt_input.focused = true;
+                    ProjectField::DevEnvPrompt
+                }
+                ProjectField::DevEnvPrompt => {
                     self.repo_list.focused = true;
                     ProjectField::Repos
                 }
@@ -137,9 +149,13 @@ impl EditProjectModal {
                     self.description_input.focused = true;
                     ProjectField::Description
                 }
-                ProjectField::Repos => {
+                ProjectField::DevEnvPrompt => {
                     self.copy_files_input.focused = true;
                     ProjectField::CopyFiles
+                }
+                ProjectField::Repos => {
+                    self.dev_env_prompt_input.focused = true;
+                    ProjectField::DevEnvPrompt
                 }
             }
         };
@@ -148,6 +164,17 @@ impl EditProjectModal {
 
 impl Modal for EditProjectModal {
     fn handle_key(&mut self, key: KeyEvent) -> AppResult<Option<Action>> {
+        // In DevEnvPrompt field, pass Enter (newline) and Up/Down to TextArea
+        if matches!(self.current_field, ProjectField::DevEnvPrompt) {
+            if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                self.dev_env_prompt_input.insert_newline();
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                self.dev_env_prompt_input.handle_key(key);
+                return Ok(None);
+            }
+        }
         // Ctrl+Enter submits the form
         if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.name_input.value.is_empty() {
@@ -169,12 +196,19 @@ impl Modal for EditProjectModal {
                 Some(self.description_input.value.clone())
             };
 
+            let dev_environment_prompt = if self.dev_env_prompt_input.value.is_empty() {
+                None
+            } else {
+                Some(self.dev_env_prompt_input.value.clone())
+            };
+
             return Ok(Some(Action::UpdateProject {
                 project_id: self.project_id.clone(),
                 name: self.name_input.value.clone(),
                 description,
                 repos,
                 worktree_copy_files: super::parse_comma_separated(&self.copy_files_input.value),
+                dev_environment_prompt,
             }));
         }
         match key.code {
@@ -192,6 +226,7 @@ impl Modal for EditProjectModal {
                     ProjectField::Name => { self.name_input.handle_key(key); },
                     ProjectField::Description => { self.description_input.handle_key(key); },
                     ProjectField::CopyFiles => { self.copy_files_input.handle_key(key); },
+                    ProjectField::DevEnvPrompt => { self.dev_env_prompt_input.handle_key(key); },
                     ProjectField::Repos => match key.code {
                         KeyCode::Up => self.repo_list.move_up(),
                         KeyCode::Down => self.repo_list.move_down(),
@@ -228,6 +263,7 @@ impl Modal for EditProjectModal {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(5),
             Constraint::Min(5),
         ])
         .split(inner);
@@ -235,7 +271,8 @@ impl Modal for EditProjectModal {
         self.name_input.render(frame, chunks[0]);
         self.description_input.render(frame, chunks[1]);
         self.copy_files_input.render(frame, chunks[2]);
-        self.repo_list.render(frame, chunks[3]);
+        self.dev_env_prompt_input.render(frame, chunks[3]);
+        self.repo_list.render(frame, chunks[4]);
     }
 
     fn handle_paste(&mut self, text: &str) {
@@ -243,6 +280,7 @@ impl Modal for EditProjectModal {
             ProjectField::Name => self.name_input.insert_paste(text),
             ProjectField::Description => self.description_input.insert_paste(text),
             ProjectField::CopyFiles => self.copy_files_input.insert_paste(text),
+            ProjectField::DevEnvPrompt => self.dev_env_prompt_input.insert_paste(text),
             ProjectField::Repos => {}
         }
     }
