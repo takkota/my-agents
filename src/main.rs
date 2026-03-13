@@ -13,7 +13,7 @@ use app::{App, UpdateResult};
 use config::Config;
 use error::AppResult;
 use event::{Event, EventHandler};
-use services::task_setup::{self, TaskSetupInput};
+use services::task_setup::{self, write_initial_prompt, TaskSetupInput};
 use services::tmux::TmuxService;
 use storage::FsStore;
 
@@ -210,32 +210,21 @@ fn cmd_launch_agent(args: &[String]) -> AppResult<()> {
         .unwrap_or_else(|| TmuxService::session_name(&project_id, &task_id));
 
     let tmux = TmuxService::new();
-
-    if !tmux.session_exists(&session_name) {
-        anyhow::bail!(
-            "tmux session '{}' does not exist. Use 'ma-task run' on a fresh task or create the session first.",
-            session_name
-        );
-    }
-
     let task_dir = store.task_dir(&project_id, &task_id);
 
-    // Build initial prompt file from task's initial_instructions + links
-    let prompt_file = if let Some(instructions) = &task.initial_instructions {
-        let mut prompt = instructions.clone();
-        let link_urls: Vec<String> = task.links.iter().map(|l| l.url.clone()).collect();
-        if !link_urls.is_empty() {
-            prompt.push_str("\n\nLinks:\n");
-            for url in &link_urls {
-                prompt.push_str(&format!("- {}\n", url));
-            }
+    // Recreate tmux session if it was lost (e.g. after reboot or manual kill)
+    if !tmux.session_exists(&session_name) {
+        if !task_dir.exists() {
+            anyhow::bail!(
+                "Task directory '{}' does not exist. Cannot recreate session.",
+                task_dir.display()
+            );
         }
-        let path = task_dir.join(".initial_prompt");
-        std::fs::write(&path, &prompt)?;
-        Some(path)
-    } else {
-        None
-    };
+        tmux.create_session(&session_name, &task_dir)?;
+    }
+
+    // Build initial prompt file from task's initial_instructions + links
+    let prompt_file = write_initial_prompt(&task, &task_dir)?;
 
     // Ensure agent config files are in place
     if let Err(e) = store.write_agent_config_files(&task, &config.pr_prompt, Some(&project)) {

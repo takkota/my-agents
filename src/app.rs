@@ -22,7 +22,7 @@ use crate::error::AppResult;
 use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
 use crate::services::pr_monitor::PrMonitor;
-use crate::services::task_setup::{self, TaskSetupInput};
+use crate::services::task_setup::{self, write_initial_prompt, TaskSetupInput};
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
 use crate::storage::FsStore;
@@ -1266,30 +1266,23 @@ impl App {
                     Ok(()) => {
                         // Launch agent if configured
                         if task.agent_cli != AgentCli::None {
-                            let prompt_file = task_dir.join(".initial_prompt");
-                            // Build .initial_prompt from task data if it doesn't exist yet
-                            if !prompt_file.exists() {
-                                if let Some(instructions) = &task.initial_instructions {
-                                    let mut prompt = instructions.clone();
-                                    let link_urls: Vec<String> =
-                                        task.links.iter().map(|l| l.url.clone()).collect();
-                                    if !link_urls.is_empty() {
-                                        prompt.push_str("\n\nLinks:\n");
-                                        for url in &link_urls {
-                                            prompt.push_str(&format!("- {}\n", url));
-                                        }
-                                    }
-                                    let _ = std::fs::write(&prompt_file, &prompt);
-                                }
+                            // Always rebuild .initial_prompt from task data so
+                            // links added after creation are included.
+                            let prompt_file =
+                                write_initial_prompt(&task, &task_dir).unwrap_or(None);
+                            let _ = self.tmux.launch_agent(
+                                &session_name,
+                                &task.agent_cli,
+                                prompt_file.as_deref(),
+                            );
+                            // Create .prompt_submitted marker so the monitor can
+                            // transition Todo → InProgress.
+                            if prompt_file.is_some() {
+                                let _ = std::fs::write(
+                                    task_dir.join(".prompt_submitted"),
+                                    "",
+                                );
                             }
-                            let prompt_path = if prompt_file.exists() {
-                                Some(prompt_file.as_path())
-                            } else {
-                                None
-                            };
-                            let _ =
-                                self.tmux
-                                    .launch_agent(&session_name, &task.agent_cli, prompt_path);
                         }
                         // Persist the session name if it wasn't stored yet
                         if task.tmux_session.is_none() {

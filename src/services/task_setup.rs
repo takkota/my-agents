@@ -3,7 +3,29 @@ use crate::domain::task::{AgentCli, Task, WorktreeInfo};
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
 use crate::storage::FsStore;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Build the `.initial_prompt` file from a task's `initial_instructions` and `links`.
+///
+/// Returns the path to the written file, or `None` if the task has no instructions
+/// or is configured without an agent CLI.
+pub fn write_initial_prompt(task: &Task, task_dir: &Path) -> std::io::Result<Option<PathBuf>> {
+    let instructions = match &task.initial_instructions {
+        Some(i) if task.agent_cli != AgentCli::None => i,
+        _ => return Ok(None),
+    };
+    let mut prompt = instructions.clone();
+    let link_urls: Vec<&str> = task.links.iter().map(|l| l.url.as_str()).collect();
+    if !link_urls.is_empty() {
+        prompt.push_str("\n\nLinks:\n");
+        for url in &link_urls {
+            prompt.push_str(&format!("- {}\n", url));
+        }
+    }
+    let path = task_dir.join(".initial_prompt");
+    std::fs::write(&path, &prompt)?;
+    Ok(Some(path))
+}
 
 /// Input for the task setup pipeline.
 pub struct TaskSetupInput<'a> {
@@ -87,32 +109,15 @@ pub fn run_task_setup(
     };
 
     // Build initial prompt file if instructions were provided
-    let prompt_file = if let Some(instructions) = &input.task.initial_instructions {
-        if input.task.agent_cli != AgentCli::None {
-            let mut prompt = instructions.clone();
-            let link_urls: Vec<String> = input.task.links.iter().map(|l| l.url.clone()).collect();
-            if !link_urls.is_empty() {
-                prompt.push_str("\n\nLinks:\n");
-                for url in &link_urls {
-                    prompt.push_str(&format!("- {}\n", url));
-                }
-            }
-            let path = input.task_dir.join(".initial_prompt");
-            match std::fs::write(&path, &prompt) {
-                Ok(()) => Some(path),
-                Err(e) => {
-                    append_error(
-                        &mut error_msg,
-                        &format!("Failed to write initial prompt file: {}", e),
-                    );
-                    None
-                }
-            }
-        } else {
+    let prompt_file = match write_initial_prompt(input.task, input.task_dir) {
+        Ok(path) => path,
+        Err(e) => {
+            append_error(
+                &mut error_msg,
+                &format!("Failed to write initial prompt file: {}", e),
+            );
             None
         }
-    } else {
-        None
     };
 
     // Write agent config files BEFORE launching the agent so that
