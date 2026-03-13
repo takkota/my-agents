@@ -121,7 +121,7 @@ pub fn run_task_setup(
     updated_task.worktrees = worktrees.clone();
     if let Err(e) = store
         .save_task(&updated_task)
-        .and_then(|_| store.write_agent_config_files(&updated_task, &input.pr_prompt))
+        .and_then(|_| store.write_agent_config_files(&updated_task, &input.pr_prompt, Some(input.project)))
     {
         append_error(&mut error_msg, &format!("{}", e));
     }

@@ -134,6 +134,12 @@ pub struct TaskLink {
     pub display_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewUrl {
+    pub service_name: String,
+    pub url: String,
+}
+
 impl TaskLink {
     pub fn display(&self) -> String {
         if let Some(name) = &self.display_name {
@@ -188,6 +194,8 @@ pub struct Task {
     pub agent_cli: AgentCli,
     pub worktrees: Vec<WorktreeInfo>,
     pub links: Vec<TaskLink>,
+    #[serde(default)]
+    pub preview_urls: Vec<PreviewUrl>,
     #[serde(default)]
     pub notes: Option<String>,
     #[serde(default)]

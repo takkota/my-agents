@@ -29,6 +29,7 @@ pub enum Action {
         description: Option<String>,
         repos: Vec<(String, PathBuf)>,
         worktree_copy_files: Vec<String>,
+        dev_environment_prompt: Option<String>,
     },
     UpdateProject {
         project_id: String,
@@ -36,6 +37,7 @@ pub enum Action {
         description: Option<String>,
         repos: Vec<(String, PathBuf)>,
         worktree_copy_files: Vec<String>,
+        dev_environment_prompt: Option<String>,
     },
     DeleteProject {
         project_id: String,
@@ -73,6 +75,7 @@ pub enum Action {
         project_id: String,
         link: TaskLink,
     },
+    OpenPreviewUrl,
     DeleteTask {
         project_id: String,
         task_id: String,

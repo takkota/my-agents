@@ -33,6 +33,8 @@ impl StatusBar {
             Span::styled(" Link ", Style::default().fg(Color::Gray)),
             Span::styled("o", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(" Open ", Style::default().fg(Color::Gray)),
+            Span::styled("v", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" Preview ", Style::default().fg(Color::Gray)),
             Span::styled("f", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled(" Filter ", Style::default().fg(Color::Gray)),
             Span::styled("A", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),

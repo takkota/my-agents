@@ -11,6 +11,8 @@ pub struct Project {
     pub description: Option<String>,
     #[serde(default)]
     pub worktree_copy_files: Vec<String>,
+    #[serde(default)]
+    pub dev_environment_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
