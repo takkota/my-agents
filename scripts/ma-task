@@ -537,15 +537,17 @@ cmd_run() {
     has_session="$(echo "$json" | jq -r '.tmux_session // empty')"
 
     if [ "$has_worktrees" -gt 0 ] || [ -n "$has_session" ]; then
-        echo "$json" | jq '{
-            already_running: true,
-            task_id: .id,
-            project_id: .project_id,
-            tmux_session: .tmux_session,
-            worktrees: [.worktrees[].worktree_path]
-        }'
-        echo "task already has worktrees or a tmux session; skipping setup" >&2
-        return 0
+        # Session/worktrees exist but agent may not be running.
+        # Launch agent with initial instructions in the existing session.
+        local bin_path=""
+        if [ -n "${MY_AGENTS_BIN:-}" ] && [ -x "${MY_AGENTS_BIN}" ]; then
+            bin_path="${MY_AGENTS_BIN}"
+        elif command -v my-agents >/dev/null 2>&1; then
+            bin_path="my-agents"
+        else
+            die "my-agents binary not found in PATH; install with 'cargo install --path .' or set MY_AGENTS_BIN"
+        fi
+        exec "$bin_path" launch-agent --project "$project_id" --task "$task_id"
     fi
 
     # Delegate to my-agents setup-task for fresh tasks

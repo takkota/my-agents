@@ -1267,6 +1267,21 @@ impl App {
                         // Launch agent if configured
                         if task.agent_cli != AgentCli::None {
                             let prompt_file = task_dir.join(".initial_prompt");
+                            // Build .initial_prompt from task data if it doesn't exist yet
+                            if !prompt_file.exists() {
+                                if let Some(instructions) = &task.initial_instructions {
+                                    let mut prompt = instructions.clone();
+                                    let link_urls: Vec<String> =
+                                        task.links.iter().map(|l| l.url.clone()).collect();
+                                    if !link_urls.is_empty() {
+                                        prompt.push_str("\n\nLinks:\n");
+                                        for url in &link_urls {
+                                            prompt.push_str(&format!("- {}\n", url));
+                                        }
+                                    }
+                                    let _ = std::fs::write(&prompt_file, &prompt);
+                                }
+                            }
                             let prompt_path = if prompt_file.exists() {
                                 Some(prompt_file.as_path())
                             } else {

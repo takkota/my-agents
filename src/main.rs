@@ -150,12 +150,125 @@ fn cmd_setup_task(args: &[String]) -> AppResult<()> {
     Ok(())
 }
 
+/// Launch an agent in an existing tmux session for a task that already has
+/// worktrees/session set up but no agent running yet.
+fn cmd_launch_agent(args: &[String]) -> AppResult<()> {
+    let mut project_id = None;
+    let mut task_id = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--project" | "-p" => {
+                project_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--task" | "-t" => {
+                task_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--help" | "-h" => {
+                eprintln!("Usage: my-agents launch-agent --project <id> --task <id>");
+                eprintln!();
+                eprintln!("Launch agent in an existing tmux session for a task that already has worktrees/session.");
+                std::process::exit(0);
+            }
+            other => {
+                anyhow::bail!("Unknown option: {}. Usage: my-agents launch-agent --project <id> --task <id>", other);
+            }
+        }
+    }
+
+    let project_id = project_id.ok_or_else(|| anyhow::anyhow!("--project is required"))?;
+    let task_id = task_id.ok_or_else(|| anyhow::anyhow!("--task is required"))?;
+
+    if !TmuxService::is_available() {
+        anyhow::bail!("tmux is required for launch-agent but not found in PATH");
+    }
+
+    let config = Config::load()?;
+    let store = FsStore::new(&config)?;
+
+    let project = store
+        .list_projects()?
+        .into_iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| anyhow::anyhow!("Project not found: {}", project_id))?;
+
+    let task = store
+        .list_tasks(&project_id)?
+        .into_iter()
+        .find(|t| t.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("Task not found: {}", task_id))?;
+
+    if task.agent_cli == domain::task::AgentCli::None {
+        anyhow::bail!("Task {} has no agent CLI configured", task_id);
+    }
+
+    let session_name = task
+        .tmux_session
+        .clone()
+        .unwrap_or_else(|| TmuxService::session_name(&project_id, &task_id));
+
+    let tmux = TmuxService::new();
+
+    if !tmux.session_exists(&session_name) {
+        anyhow::bail!(
+            "tmux session '{}' does not exist. Use 'ma-task run' on a fresh task or create the session first.",
+            session_name
+        );
+    }
+
+    let task_dir = store.task_dir(&project_id, &task_id);
+
+    // Build initial prompt file from task's initial_instructions + links
+    let prompt_file = if let Some(instructions) = &task.initial_instructions {
+        let mut prompt = instructions.clone();
+        let link_urls: Vec<String> = task.links.iter().map(|l| l.url.clone()).collect();
+        if !link_urls.is_empty() {
+            prompt.push_str("\n\nLinks:\n");
+            for url in &link_urls {
+                prompt.push_str(&format!("- {}\n", url));
+            }
+        }
+        let path = task_dir.join(".initial_prompt");
+        std::fs::write(&path, &prompt)?;
+        Some(path)
+    } else {
+        None
+    };
+
+    // Ensure agent config files are in place
+    if let Err(e) = store.write_agent_config_files(&task, &config.pr_prompt, Some(&project)) {
+        eprintln!("Warning: Failed to write agent config files: {}", e);
+    }
+
+    // Launch agent
+    tmux.launch_agent(&session_name, &task.agent_cli, prompt_file.as_deref())?;
+
+    // Create .prompt_submitted marker if prompt was provided
+    if prompt_file.is_some() {
+        let _ = std::fs::write(task_dir.join(".prompt_submitted"), "");
+    }
+
+    let result = serde_json::json!({
+        "task_id": task_id,
+        "project_id": project_id,
+        "tmux_session": session_name,
+        "agent_launched": true,
+    });
+    println!("{}", serde_json::to_string_pretty(&result)?);
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> AppResult<()> {
     // Dispatch subcommands before TUI initialization
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(|s| s.as_str()) == Some("setup-task") {
-        return cmd_setup_task(&args[2..]);
+    match args.get(1).map(|s| s.as_str()) {
+        Some("setup-task") => return cmd_setup_task(&args[2..]),
+        Some("launch-agent") => return cmd_launch_agent(&args[2..]),
+        _ => {}
     }
 
     // Check required external dependencies
