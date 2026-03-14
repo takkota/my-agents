@@ -275,7 +275,7 @@ impl Modal for CreateTaskModal {
                 Constraint::Length(5),           // Notes
                 Constraint::Length(link_height), // LinkUrl
                 Constraint::Length(7),           // Priority
-                Constraint::Length(5),           // AgentCli
+                Constraint::Length(6),           // AgentCli (4 items + 2 border)
             ])
             .split(inner);
 
@@ -292,7 +292,7 @@ impl Modal for CreateTaskModal {
                 Constraint::Length(5),           // Notes
                 Constraint::Length(link_height), // LinkUrl
                 Constraint::Length(7),           // Priority
-                Constraint::Length(5),           // AgentCli
+                Constraint::Length(6),           // AgentCli (4 items + 2 border)
             ])
             .split(inner);
 
