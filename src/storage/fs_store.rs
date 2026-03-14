@@ -723,7 +723,7 @@ impl FsStore {
         let agent_stopped_path = task_dir.join(".agent_stopped");
         let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
 
-        let settings = serde_json::json!({
+        let mut settings = serde_json::json!({
             "hooks": {
                 "BeforeAgent": [
                     {
@@ -770,6 +770,35 @@ impl FsStore {
                 ]
             }
         });
+
+        // Merge allowed settings from project-level .gemini/settings.json
+        // (mirrors write_claude_hooks behaviour for symmetry).
+        const ALLOWED_PROJECT_KEYS: &[&str] = &["extensions", "mcpServers"];
+
+        let project_settings_path = self
+            .project_dir(&task.project_id)
+            .join(".gemini")
+            .join("settings.json");
+        if project_settings_path.exists() {
+            match fs::read_to_string(&project_settings_path) {
+                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(project_settings) => {
+                        if let Some(project_obj) = project_settings.as_object() {
+                            let Some(settings_obj) = settings.as_object_mut() else {
+                                return Ok(());
+                            };
+                            for key in ALLOWED_PROJECT_KEYS {
+                                if let Some(value) = project_obj.get(*key) {
+                                    settings_obj.insert((*key).to_string(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {}
+                },
+                Err(_) => {}
+            }
+        }
 
         fs::write(
             gemini_dir.join("settings.json"),
@@ -1091,7 +1120,7 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                     - Give it a name and add git repository paths\n\
                  \n\
                  2. Press 'n' to add a task to the project\n\
-                    - Choose an agent CLI (Claude, Codex, or None)\n\
+                    - Choose an agent CLI (Claude, Codex, Gemini, or None)\n\
                     - A tmux session is created automatically\n\
                  \n\
                  3. Press Enter to attach to a task's session\n\

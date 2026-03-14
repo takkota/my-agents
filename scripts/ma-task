@@ -326,8 +326,9 @@ cmd_update() {
                 case "$agent_val" in
                     Claude|claude) agent_val="Claude" ;;
                     Codex|codex) agent_val="Codex" ;;
+                    Gemini|gemini) agent_val="Gemini" ;;
                     None|none) agent_val="None" ;;
-                    *) die "invalid agent: $agent_val (use Claude, Codex, or None)" ;;
+                    *) die "invalid agent: $agent_val (use Claude, Codex, Gemini, or None)" ;;
                 esac
                 json="$(echo "$json" | jq --arg v "$agent_val" '.agent_cli = $v')"
                 shift 2 ;;
