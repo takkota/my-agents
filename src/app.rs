@@ -150,12 +150,14 @@ impl App {
         app.reload_data()?;
         app.last_data_fingerprint = app.store.data_fingerprint();
 
-        // Re-generate Claude Code hooks for all existing Claude tasks
-        // to ensure latest hook configuration (e.g. .manual_todo cleanup).
+        // Re-generate hooks for all existing agent tasks
+        // to ensure latest hook configuration.
         for tasks in app.tasks_by_project.values() {
             for task in tasks {
-                if task.agent_cli == AgentCli::Claude {
-                    let _ = app.store.write_claude_hooks(task);
+                match task.agent_cli {
+                    AgentCli::Claude => { let _ = app.store.write_claude_hooks(task); }
+                    AgentCli::Gemini => { let _ = app.store.write_gemini_hooks(task); }
+                    _ => {}
                 }
             }
         }
@@ -769,7 +771,7 @@ impl App {
                 // so the monitor won't override the manual change.
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
-                        if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Codex) {
+                        if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini) {
                             let task_dir = self.store.task_dir(&project_id, &task_id);
                             let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
                             let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));

@@ -85,18 +85,20 @@ impl fmt::Display for Status {
 pub enum AgentCli {
     Claude,
     Codex,
+    Gemini,
     None,
 }
 
 impl AgentCli {
     pub fn all() -> &'static [AgentCli] {
-        &[AgentCli::Claude, AgentCli::Codex, AgentCli::None]
+        &[AgentCli::Claude, AgentCli::Codex, AgentCli::Gemini, AgentCli::None]
     }
 
     pub fn command(&self) -> Option<&'static str> {
         match self {
             AgentCli::Claude => Some("claude"),
             AgentCli::Codex => Some("codex"),
+            AgentCli::Gemini => Some("gemini"),
             AgentCli::None => None,
         }
     }
@@ -105,6 +107,7 @@ impl AgentCli {
     pub fn launch_command(&self) -> Option<String> {
         self.command().map(|cmd| match self {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
+            AgentCli::Gemini => format!("{} --approval-mode=yolo", cmd),
             _ => cmd.to_string(),
         })
     }
@@ -115,6 +118,7 @@ impl fmt::Display for AgentCli {
         match self {
             AgentCli::Claude => write!(f, "Claude Code"),
             AgentCli::Codex => write!(f, "Codex"),
+            AgentCli::Gemini => write!(f, "Gemini CLI"),
             AgentCli::None => write!(f, "None"),
         }
     }
