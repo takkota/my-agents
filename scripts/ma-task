@@ -209,8 +209,9 @@ cmd_create() {
     case "$agent_cli" in
         Claude|claude) agent_cli="Claude" ;;
         Codex|codex) agent_cli="Codex" ;;
+        Gemini|gemini) agent_cli="Gemini" ;;
         None|none) agent_cli="None" ;;
-        *) die "invalid agent: ${agent_cli} (use Claude, Codex, or None)" ;;
+        *) die "invalid agent: ${agent_cli} (use Claude, Codex, Gemini, or None)" ;;
     esac
 
     local task_id now
@@ -715,7 +716,7 @@ Create options:
   --project, -p <id>    Project ID (auto-detected if in task dir)
   --name, -n <name>     Task name (required)
   --priority <P1-P5>    Priority (default: P3)
-  --agent <cli>         Agent CLI: Claude, Codex, None (default: Claude)
+  --agent <cli>         Agent CLI: Claude, Codex, Gemini, None (default: Claude)
   --notes <text>        Initial notes
   --prompt <text>       Initial instructions for the agent (required for --run)
   --link <url>          Add a link (repeatable for multiple links)
@@ -726,7 +727,7 @@ Update options:
   --priority <P1-P5>    New priority
   --notes <text>        New notes
   --prompt <text>       Update initial instructions
-  --agent <cli>         Agent CLI: Claude, Codex, None
+  --agent <cli>         Agent CLI: Claude, Codex, Gemini, None
 
 Status values:
   Todo, InProgress, ActionRequired, Completed, Blocked

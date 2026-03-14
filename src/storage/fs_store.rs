@@ -266,6 +266,40 @@ impl FsStore {
             fs::write(dir.join("CLAUDE.md"), claude_lines.join("\n") + "\n")?;
         }
 
+        // Write GEMINI.md with references and skill trigger
+        let mut gemini_lines: Vec<String> = task
+            .worktrees
+            .iter()
+            .filter_map(|wt| {
+                let gemini_md = wt.upstream_path.join("GEMINI.md");
+                if gemini_md.exists() {
+                    Some(format!("@{}/GEMINI.md", wt.repo_name))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if task.agent_cli == crate::domain::task::AgentCli::Gemini {
+            gemini_lines.push(String::new());
+            gemini_lines.push("## Task Management".to_string());
+            gemini_lines.push(format!(
+                "This session is managed by my-agents. Task ID: `{}`, Project: `{}`.",
+                task.id, task.project_id
+            ));
+            gemini_lines.push(
+                "Use the `ma-task` command to manage tasks. Run `ma-task current` to see your task details."
+                    .to_string(),
+            );
+            if !pr_prompt.trim().is_empty() {
+                gemini_lines.push(String::new());
+                gemini_lines.push("## Pull Request".to_string());
+                gemini_lines.push(pr_prompt.to_string());
+            }
+        }
+        if !gemini_lines.is_empty() {
+            fs::write(dir.join("GEMINI.md"), gemini_lines.join("\n") + "\n")?;
+        }
+
         // Write AGENTS.md with references and skill trigger
         let mut agents_lines: Vec<String> = task
             .worktrees
@@ -314,6 +348,11 @@ impl FsStore {
             self.write_codex_notify(task)?;
         }
 
+        // Write Gemini CLI hooks config for Gemini agent tasks
+        if task.agent_cli == crate::domain::task::AgentCli::Gemini {
+            self.write_gemini_hooks(task)?;
+        }
+
         // Write dev-environment skill if project has dev_environment_prompt
         let dev_env_prompt = project.and_then(|p| p.dev_environment_prompt.as_deref());
         if let Some(prompt) = dev_env_prompt {
@@ -340,6 +379,20 @@ impl FsStore {
                 };
                 content.push_str("\n## Dev Environment\nUse the `$dev-environment` skill to start the development server and register preview URLs.\n");
                 fs::write(&agents_md_path, content)?;
+            }
+            if task.agent_cli == crate::domain::task::AgentCli::Gemini {
+                // Append dev-environment instructions to GEMINI.md
+                let gemini_md_path = dir.join("GEMINI.md");
+                let mut content = if gemini_md_path.exists() {
+                    fs::read_to_string(&gemini_md_path)?
+                } else {
+                    String::new()
+                };
+                content.push_str(&format!(
+                    "\n## Dev Environment\n\n{}\n\nAfter starting the dev server, register preview URLs:\n```bash\nma-task preview-url {} <url> --name <service-name>\n```\n",
+                    prompt, task.id
+                ));
+                fs::write(&gemini_md_path, content)?;
             }
         }
 
@@ -652,6 +705,80 @@ impl FsStore {
         Ok(())
     }
 
+    /// Write `.gemini/settings.json` in the task directory with hooks that
+    /// support task management (prompt activity detection, agent stop detection,
+    /// PR link discovery). Mirrors Claude Code's hook structure using Gemini CLI
+    /// hook equivalents: BeforeAgent → UserPromptSubmit, AfterAgent → Stop,
+    /// AfterTool → PostToolUse.
+    pub fn write_gemini_hooks(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+
+        let gemini_dir = task_dir.join(".gemini");
+        fs::create_dir_all(&gemini_dir)?;
+
+        let pr_links_path = task_dir.join(".pr_links");
+        let pr_links_path_str = pr_links_path.to_string_lossy();
+        let prompt_submitted_path = task_dir.join(".prompt_submitted");
+        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
+        let agent_stopped_path = task_dir.join(".agent_stopped");
+        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
+
+        let settings = serde_json::json!({
+            "hooks": {
+                "BeforeAgent": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "touch {} && rm -f {}",
+                                    shell_escape(&prompt_submitted_path_str),
+                                    shell_escape(&agent_stopped_path_str)
+                                )
+                            }
+                        ]
+                    }
+                ],
+                "AfterAgent": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "touch {}",
+                                    shell_escape(&agent_stopped_path_str)
+                                )
+                            }
+                        ]
+                    }
+                ],
+                "AfterTool": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": format!(
+                                    "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' | grep -vE '/(owner|org|example|user|your-org)/(repo|repository|my-repo|your-repo|example)/' >> {} || true",
+                                    shell_escape(&pr_links_path_str)
+                                )
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        fs::write(
+            gemini_dir.join("settings.json"),
+            serde_json::to_string_pretty(&settings)?,
+        )?;
+
+        Ok(())
+    }
+
     /// Copy `.claude/settings.local.json` from the project directory to the
     /// task directory so that project-local settings (e.g. plugin
     /// configurations not committed to version control) are inherited.
@@ -757,7 +884,7 @@ ma-task list --project {project_id}
 ### Create a new task
 
 ```bash
-ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|None]
+ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|Gemini|None]
 ```
 
 ### Update task fields

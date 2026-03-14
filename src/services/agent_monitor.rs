@@ -34,7 +34,7 @@ impl AgentMonitor {
 
         for task in &tasks {
             match task.agent_cli {
-                AgentCli::Claude | AgentCli::Codex => {
+                AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini => {
                     if let Some(e) = self.check_agent_task(&task.id, &task.project_id, &task.status, &task.tmux_session) {
                         events.push(e);
                     }
@@ -42,8 +42,8 @@ impl AgentMonitor {
                 AgentCli::None => {}
             }
 
-            // PR link discovery is Claude-only (uses PostToolUse hook)
-            if task.agent_cli == AgentCli::Claude {
+            // PR link discovery — Claude uses PostToolUse hook, Gemini uses AfterTool hook
+            if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Gemini) {
                 let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
                 events.extend(link_events);
             }
