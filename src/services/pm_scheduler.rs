@@ -62,6 +62,78 @@ impl PmScheduler {
     }
 }
 
+/// Validate a cron expression. Returns Ok(()) if valid, Err with description if invalid.
+pub fn validate_cron(expr: &str) -> Result<(), String> {
+    let fields: Vec<&str> = expr.split_whitespace().collect();
+    if fields.len() != 5 {
+        return Err(format!(
+            "Expected 5 fields (minute hour dom month dow), got {}",
+            fields.len()
+        ));
+    }
+    let field_names = ["minute", "hour", "day-of-month", "month", "day-of-week"];
+    let ranges = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)];
+    for (i, field) in fields.iter().enumerate() {
+        if let Err(e) = validate_cron_field(field, ranges[i].0, ranges[i].1) {
+            return Err(format!("Invalid {} field '{}': {}", field_names[i], field, e));
+        }
+    }
+    Ok(())
+}
+
+fn validate_cron_field(field: &str, min: u32, max: u32) -> Result<(), String> {
+    if field == "*" {
+        return Ok(());
+    }
+    if field.contains(',') {
+        for part in field.split(',') {
+            validate_cron_field(part.trim(), min, max)?;
+        }
+        return Ok(());
+    }
+    if let Some(step_str) = field.strip_prefix("*/") {
+        let step: u32 = step_str
+            .parse()
+            .map_err(|_| format!("'{}' is not a valid number", step_str))?;
+        if step == 0 {
+            return Err("step cannot be 0".to_string());
+        }
+        if step > max - min + 1 {
+            return Err(format!(
+                "step {} exceeds field range {}-{}",
+                step, min, max
+            ));
+        }
+        return Ok(());
+    }
+    if field.contains('-') {
+        let parts: Vec<&str> = field.splitn(2, '-').collect();
+        if parts.len() != 2 {
+            return Err("invalid range".to_string());
+        }
+        let start: u32 = parts[0]
+            .parse()
+            .map_err(|_| format!("'{}' is not a valid number", parts[0]))?;
+        let end: u32 = parts[1]
+            .parse()
+            .map_err(|_| format!("'{}' is not a valid number", parts[1]))?;
+        if start > end {
+            return Err(format!("range start {} > end {}", start, end));
+        }
+        if start < min || end > max {
+            return Err(format!("range {}-{} outside valid range {}-{}", start, end, min, max));
+        }
+        return Ok(());
+    }
+    let n: u32 = field
+        .parse()
+        .map_err(|_| format!("'{}' is not a valid number", field))?;
+    if n < min || n > max {
+        return Err(format!("value {} outside valid range {}-{}", n, min, max));
+    }
+    Ok(())
+}
+
 /// Check if a 5-field cron expression matches the given datetime.
 /// Fields: minute hour day_of_month month day_of_week
 /// Supports: *, n, n-m, */n, n,m
@@ -215,5 +287,25 @@ mod tests {
         assert!(cron_matches("*/15 9-17 * * 1-5", &dt));
         let dt_sun = make_dt(2026, 3, 15, 9, 15); // Sunday
         assert!(!cron_matches("*/15 9-17 * * 1-5", &dt_sun));
+    }
+
+    #[test]
+    fn test_validate_cron_valid() {
+        assert!(validate_cron("* * * * *").is_ok());
+        assert!(validate_cron("0 9 * * 1-5").is_ok());
+        assert!(validate_cron("*/15 9-17 * * 1-5").is_ok());
+        assert!(validate_cron("0,15,30,45 * * * *").is_ok());
+    }
+
+    #[test]
+    fn test_validate_cron_invalid() {
+        assert!(validate_cron("invalid").is_err());
+        assert!(validate_cron("* * *").is_err()); // too few fields
+        assert!(validate_cron("* * * * * *").is_err()); // too many fields
+        assert!(validate_cron("60 * * * *").is_err()); // minute out of range
+        assert!(validate_cron("* 25 * * *").is_err()); // hour out of range
+        assert!(validate_cron("*/0 * * * *").is_err()); // step 0
+        assert!(validate_cron("*/100 * * * *").is_err()); // step exceeds range
+        assert!(validate_cron("30-10 * * * *").is_err()); // reversed range
     }
 }

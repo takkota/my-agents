@@ -3,6 +3,7 @@ use super::Modal;
 use crate::action::Action;
 use crate::domain::task::{AgentCli, Priority};
 use crate::error::AppResult;
+use crate::services::pm_scheduler::validate_cron;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -64,6 +65,7 @@ pub struct EditProjectModal {
     pm_cron_input: TextInput,
     pm_custom_instructions_input: TextArea,
     current_field: ProjectField,
+    validation_error: Option<String>,
 }
 
 impl EditProjectModal {
@@ -142,6 +144,7 @@ impl EditProjectModal {
             pm_cron_input,
             pm_custom_instructions_input,
             current_field: ProjectField::Name,
+            validation_error: None,
         }
     }
 
@@ -266,9 +269,20 @@ impl Modal for EditProjectModal {
         }
         // Ctrl+Enter submits the form
         if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.validation_error = None;
             if self.name_input.value.is_empty() {
+                self.validation_error = Some("Project name cannot be empty".to_string());
                 return Ok(None);
             }
+
+            // Validate cron expression if PM is enabled
+            if self.pm_enabled && !self.pm_cron_input.value.is_empty() {
+                if let Err(e) = validate_cron(&self.pm_cron_input.value) {
+                    self.validation_error = Some(format!("Invalid cron: {}", e));
+                    return Ok(None);
+                }
+            }
+
             let repos: Vec<(String, PathBuf)> = self
                 .repo_list
                 .selected_values()
@@ -373,10 +387,20 @@ impl Modal for EditProjectModal {
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(Clear, area);
+        let title = if let Some(err) = &self.validation_error {
+            format!(" Edit Project - {} ", err)
+        } else {
+            " Edit Project ".to_string()
+        };
+        let border_color = if self.validation_error.is_some() {
+            Color::Red
+        } else {
+            Color::Cyan
+        };
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" Edit Project ")
-            .border_style(Style::default().fg(Color::Cyan));
+            .title(title)
+            .border_style(Style::default().fg(border_color));
         frame.render_widget(block, area);
 
         let inner = area.inner(ratatui::layout::Margin {

@@ -33,7 +33,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use uuid::Uuid;
 
 /// Result of App::update() that tells the main loop what to do next
@@ -72,6 +73,8 @@ pub struct App {
     agent_monitor: AgentMonitor,
     pr_monitor: PrMonitor,
     pm_scheduler: PmScheduler,
+    /// Cancel flag for pending PM prompt sends (shared with background thread)
+    pm_prompt_cancel: Arc<AtomicBool>,
     tick_count: u64,
 
     // Filesystem change detection
@@ -145,6 +148,7 @@ impl App {
             agent_monitor,
             pr_monitor,
             pm_scheduler,
+            pm_prompt_cancel: Arc::new(AtomicBool::new(false)),
             tick_count: 0,
             last_data_fingerprint: (0, 0),
             needs_full_redraw: false,
@@ -1037,7 +1041,16 @@ impl App {
             }
 
             Action::StartPmSession { project_id } => {
-                if let Err(e) = self.handle_pm_trigger(&project_id) {
+                let pm_enabled = self
+                    .projects
+                    .iter()
+                    .find(|p| p.id == project_id)
+                    .map(|p| p.pm_enabled)
+                    .unwrap_or(false);
+                if !pm_enabled {
+                    self.error_message =
+                        Some("PM is not enabled for this project. Edit the project (m) to enable it.".to_string());
+                } else if let Err(e) = self.handle_pm_trigger(&project_id) {
                     self.error_message = Some(format!("Failed to start PM session: {}", e));
                 }
             }
@@ -1266,6 +1279,9 @@ impl App {
         let pm_session = TmuxService::pm_session_name(project_id);
         let pm_dir = self.store.pm_dir(project_id);
 
+        // Cancel any pending prompt send from a previous trigger
+        self.pm_prompt_cancel.store(true, Ordering::Relaxed);
+
         // Kill existing PM session (fresh start each trigger for config reload)
         if self.tmux.session_exists(&pm_session) {
             let _ = self.tmux.kill_session(&pm_session);
@@ -1297,11 +1313,17 @@ impl App {
             AgentCli::None => return Ok(()),
         };
 
+        // Create a fresh cancel flag for this trigger
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.pm_prompt_cancel = cancel.clone();
+
         let tmux = TmuxService::new();
         let session = pm_session.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(3));
-            let _ = tmux.send_prompt(&session, agent_cli, &trigger_prompt);
+            if !cancel.load(Ordering::Relaxed) {
+                let _ = tmux.send_prompt(&session, agent_cli, &trigger_prompt);
+            }
         });
 
         self.active_sessions.insert(pm_session);
