@@ -34,6 +34,8 @@ pub struct PreviewPanel {
     task_notes: Option<String>,
     task_initial_instructions: Option<String>,
     project_info: Option<ProjectInfo>,
+    info_scroll: u16,
+    session_scroll: Option<u16>,
 }
 
 impl PreviewPanel {
@@ -46,6 +48,8 @@ impl PreviewPanel {
             task_notes: None,
             task_initial_instructions: None,
             project_info: None,
+            info_scroll: 0,
+            session_scroll: None,
         }
     }
 
@@ -55,6 +59,8 @@ impl PreviewPanel {
         self.task_notes = notes;
         self.task_initial_instructions = initial_instructions;
         self.project_info = None;
+        self.info_scroll = 0;
+        self.session_scroll = None;
     }
 
     pub fn clear_task_info(&mut self) {
@@ -63,6 +69,8 @@ impl PreviewPanel {
         self.task_notes = None;
         self.task_initial_instructions = None;
         self.project_info = None;
+        self.info_scroll = 0;
+        self.session_scroll = None;
     }
 
     pub fn update_project_info(&mut self, info: ProjectInfo) {
@@ -71,6 +79,25 @@ impl PreviewPanel {
         self.task_links = Vec::new();
         self.task_notes = None;
         self.task_initial_instructions = None;
+        self.info_scroll = 0;
+        self.session_scroll = None;
+    }
+
+    pub fn scroll_info_up(&mut self) {
+        self.info_scroll = self.info_scroll.saturating_sub(1);
+    }
+
+    pub fn scroll_info_down(&mut self) {
+        self.info_scroll = self.info_scroll.saturating_add(1);
+    }
+
+    pub fn scroll_session_up(&mut self) {
+        // Switch from auto-scroll (None) to manual scroll
+        self.session_scroll = Some(self.session_scroll.unwrap_or(0).saturating_sub(1));
+    }
+
+    pub fn scroll_session_down(&mut self) {
+        self.session_scroll = Some(self.session_scroll.unwrap_or(0).saturating_add(1));
     }
 
     pub fn update_preview(&mut self, session_name: Option<&str>, tmux: &TmuxService) {
@@ -206,22 +233,24 @@ impl PreviewPanel {
         lines
     }
 
-    fn build_task_info_paragraph(&self) -> Paragraph<'_> {
+    fn build_task_info_paragraph(&self, focused: bool) -> Paragraph<'_> {
+        let border_color = if focused { Color::Yellow } else { Color::Cyan };
         Paragraph::new(self.build_task_info_lines())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Task Info ")
-                    .border_style(Style::default().fg(Color::Cyan)),
+                    .border_style(Style::default().fg(border_color)),
             )
             .wrap(Wrap { trim: false })
+            .scroll((self.info_scroll, 0))
     }
 
-    fn render_task_info(&self, frame: &mut Frame, area: Rect) {
-        frame.render_widget(self.build_task_info_paragraph(), area);
+    fn render_task_info(&self, frame: &mut Frame, area: Rect, focused: bool) {
+        frame.render_widget(self.build_task_info_paragraph(focused), area);
     }
 
-    fn render_project_info(&self, frame: &mut Frame, area: Rect) {
+    fn render_project_info(&self, frame: &mut Frame, area: Rect, focused: bool) {
         let info = match &self.project_info {
             Some(info) => info,
             None => return,
@@ -328,43 +357,52 @@ impl PreviewPanel {
             }
         }
 
+        let border_color = if focused { Color::Yellow } else { Color::Cyan };
         let paragraph = Paragraph::new(lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(format!(" Project: {} ", info.name))
-                    .border_style(Style::default().fg(Color::Cyan)),
+                    .border_style(Style::default().fg(border_color)),
             )
-            .wrap(Wrap { trim: false });
+            .wrap(Wrap { trim: false })
+            .scroll((self.info_scroll, 0));
 
         frame.render_widget(paragraph, area);
     }
 
-    fn render_session(&self, frame: &mut Frame, area: Rect) {
+    fn render_session(&self, frame: &mut Frame, area: Rect, focused: bool) {
         let title = match &self.current_session {
             Some(name) => format!(" Session: {} ", name),
             None => " Preview ".to_string(),
         };
+        let border_color = if focused { Color::Yellow } else { Color::DarkGray };
         let text = Text::from(self.content.as_str());
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_style(Style::default().fg(border_color));
         let paragraph = Paragraph::new(text)
             .block(block.clone())
             .wrap(Wrap { trim: false })
             .style(Style::default().fg(Color::Gray));
 
-        // Scroll to bottom so the latest tmux output is always visible
         let inner_height = block.inner(area).height as usize;
         let total_lines = paragraph.line_count(area.width);
-        let scroll_offset = total_lines.saturating_sub(inner_height) as u16;
+        let max_scroll = total_lines.saturating_sub(inner_height) as u16;
+
+        let scroll_offset = match self.session_scroll {
+            // Manual scroll mode: clamp to max
+            Some(manual) => manual.min(max_scroll),
+            // Auto-scroll to bottom
+            None => max_scroll,
+        };
         let paragraph = paragraph.scroll((scroll_offset, 0));
 
         frame.render_widget(paragraph, area);
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, info_focused: bool, session_focused: bool) {
         if self.project_info.is_some() {
             // If PM session is active, split between project info and session content
             if self.current_session.is_some() {
@@ -373,17 +411,17 @@ impl PreviewPanel {
                     Constraint::Percentage(60),
                 ])
                 .split(area);
-                self.render_project_info(frame, chunks[0]);
-                self.render_session(frame, chunks[1]);
+                self.render_project_info(frame, chunks[0], info_focused);
+                self.render_session(frame, chunks[1], session_focused);
             } else {
-                self.render_project_info(frame, area);
+                self.render_project_info(frame, area, info_focused);
             }
             return;
         }
 
         if self.has_task_info() {
             // Use Paragraph::line_count() to get accurate height including word-wrapping
-            let paragraph = self.build_task_info_paragraph();
+            let paragraph = self.build_task_info_paragraph(info_focused);
             let info_lines = paragraph.line_count(area.width) as u16;
             let max_height = if self.current_session.is_some() {
                 area.height / 3
@@ -398,10 +436,10 @@ impl PreviewPanel {
             ])
             .split(area);
 
-            self.render_task_info(frame, chunks[0]);
-            self.render_session(frame, chunks[1]);
+            self.render_task_info(frame, chunks[0], info_focused);
+            self.render_session(frame, chunks[1], session_focused);
         } else {
-            self.render_session(frame, area);
+            self.render_session(frame, area, session_focused);
         }
     }
 }

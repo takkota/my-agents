@@ -216,7 +216,7 @@ impl TaskTree {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let items: Vec<ListItem> = self
             .items
             .iter()
@@ -302,11 +302,13 @@ impl TaskTree {
             })
             .collect();
 
+        let border_color = if focused { Color::Yellow } else { Color::Reset };
         let list = List::new(items)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(" Projects & Tasks "),
+                    .title(" Projects & Tasks ")
+                    .border_style(Style::default().fg(border_color)),
             )
             .highlight_style(
                 Style::default()

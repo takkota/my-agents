@@ -1,3 +1,4 @@
+use crate::app::FocusPane;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -20,6 +21,7 @@ impl StatusBar {
         area: Rect,
         error_msg: Option<&str>,
         context: SelectionContext,
+        focus: FocusPane,
     ) {
         if let Some(err) = error_msg {
             let line = Line::from(vec![
@@ -43,9 +45,23 @@ impl StatusBar {
 
         let mut spans = Vec::new();
 
+        // Focus hint
+        spans.extend([
+            Span::styled(" w", key_style),
+            Span::styled(" Focus ", desc_style),
+        ]);
+
+        // When right panes are focused, show scroll hint
+        if matches!(focus, FocusPane::InfoPanel | FocusPane::SessionPanel) {
+            spans.extend([
+                Span::styled("j/k", key_style),
+                Span::styled(" Scroll ", desc_style),
+            ]);
+        }
+
         // Common keys (always available)
         spans.extend([
-            Span::styled(" p", key_style),
+            Span::styled("p", key_style),
             Span::styled(" Project ", desc_style),
             Span::styled("n", key_style),
             Span::styled(" Task ", desc_style),
