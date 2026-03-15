@@ -53,9 +53,6 @@ pub enum Action {
     StartPmSession {
         project_id: String,
     },
-    StopPmSession {
-        project_id: String,
-    },
 
     // Task CRUD
     CreateTask {

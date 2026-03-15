@@ -1055,20 +1055,6 @@ impl App {
                 }
             }
 
-            Action::StopPmSession { project_id } => {
-                let pm_session = TmuxService::pm_session_name(&project_id);
-                let _ = self.tmux.kill_session(&pm_session);
-                // Clear pm_tmux_session from project
-                if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
-                    let mut updated = project;
-                    updated.pm_tmux_session = None;
-                    updated.updated_at = Utc::now();
-                    let _ = self.store.save_project(&updated);
-                }
-                let _ = self.reload_data();
-                self.rebuild_tree();
-            }
-
             Action::Tick => {
                 self.tick_count += 1;
 
