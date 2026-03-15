@@ -1295,15 +1295,18 @@ impl App {
         let history_marker = pm_state_dir.join(".has_history");
         // Create guard file for Codex deferred-prompt thread safety
         let _ = std::fs::write(&guard_file, "");
-        if history_marker.exists() {
+        // Gemini CLI cannot resume sessions after tmux kill (session data not saved on SIGTERM),
+        // so always launch fresh. Claude/Codex handle resume gracefully.
+        let can_resume = history_marker.exists() && agent_cli != AgentCli::Gemini;
+        if can_resume {
             // Resume previous conversation to preserve context
             self.tmux.launch_agent_resume(&pm_session, &agent_cli, trigger_prompt, Some(&guard_file))?;
         } else {
-            // First run: launch fresh with prompt file
+            // First run (or Gemini): launch fresh with prompt file
             let prompt_file = pm_state_dir.join(".initial_prompt");
             std::fs::write(&prompt_file, trigger_prompt)?;
             self.tmux.launch_agent(&pm_session, &agent_cli, Some(&prompt_file))?;
-            // Mark that a session has been started for future resumes
+            // Mark that a session has been started for future resumes (used by Claude/Codex)
             let _ = std::fs::write(&history_marker, "");
         }
 
