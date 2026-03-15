@@ -14,7 +14,6 @@ pub struct ProjectInfo {
     pub project_dir: PathBuf,
     pub repos: Vec<RepoInfo>,
     pub worktree_copy_files: Vec<String>,
-    pub task_stats: TaskStats,
     pub pm_enabled: bool,
     pub pm_agent_cli: Option<AgentCli>,
     pub pm_cron_expression: Option<String>,
@@ -24,16 +23,6 @@ pub struct ProjectInfo {
 pub struct RepoInfo {
     pub name: String,
     pub path: PathBuf,
-}
-
-#[derive(Clone, Default)]
-pub struct TaskStats {
-    pub total: usize,
-    pub todo: usize,
-    pub in_progress: usize,
-    pub action_required: usize,
-    pub completed: usize,
-    pub blocked: usize,
 }
 
 pub struct PreviewPanel {
@@ -276,46 +265,6 @@ impl PreviewPanel {
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]));
-            }
-        }
-
-        lines.push(Line::from(""));
-
-        // Task statistics section
-        let stats = &info.task_stats;
-        lines.push(Line::from(vec![Span::styled(
-            " Tasks ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )]));
-
-        lines.push(Line::from(vec![
-            Span::raw("  Total: "),
-            Span::styled(
-                stats.total.to_string(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-            ),
-        ]));
-
-        if stats.total > 0 {
-            let stat_items = [
-                ("  ○ Todo:        ", stats.todo, Color::White),
-                ("  ◉ In Progress: ", stats.in_progress, Color::Yellow),
-                ("  ⚠ Action Req:  ", stats.action_required, Color::LightRed),
-                ("  ● Completed:   ", stats.completed, Color::Green),
-                ("  ✕ Blocked:     ", stats.blocked, Color::Red),
-            ];
-            for (label, count, color) in stat_items {
-                if count > 0 {
-                    lines.push(Line::from(vec![
-                        Span::styled(label, Style::default().fg(color)),
-                        Span::styled(
-                            count.to_string(),
-                            Style::default().fg(color),
-                        ),
-                    ]));
-                }
             }
         }
 
