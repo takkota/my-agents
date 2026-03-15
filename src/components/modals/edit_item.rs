@@ -416,13 +416,13 @@ impl Modal for EditProjectModal {
         ];
 
         if self.pm_enabled {
-            constraints.push(Constraint::Min(5));   // Repos (flexible)
+            constraints.push(Constraint::Min(10));  // Repos (flexible)
             constraints.push(Constraint::Length(1)); // PM toggle
             constraints.push(Constraint::Length(5)); // PM Agent CLI
             constraints.push(Constraint::Length(3)); // PM Cron
             constraints.push(Constraint::Min(3));   // PM Custom Instructions
         } else {
-            constraints.push(Constraint::Min(5));   // Repos (takes remaining space)
+            constraints.push(Constraint::Min(10));  // Repos (takes remaining space)
             constraints.push(Constraint::Length(1)); // PM toggle
         }
 
