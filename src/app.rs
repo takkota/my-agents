@@ -33,8 +33,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 use uuid::Uuid;
 
 /// Result of App::update() that tells the main loop what to do next
@@ -73,8 +72,6 @@ pub struct App {
     agent_monitor: AgentMonitor,
     pr_monitor: PrMonitor,
     pm_scheduler: PmScheduler,
-    /// Cancel flag for pending PM prompt sends (shared with background thread)
-    pm_prompt_cancel: Arc<AtomicBool>,
     tick_count: u64,
 
     // Filesystem change detection
@@ -148,7 +145,6 @@ impl App {
             agent_monitor,
             pr_monitor,
             pm_scheduler,
-            pm_prompt_cancel: Arc::new(AtomicBool::new(false)),
             tick_count: 0,
             last_data_fingerprint: (0, 0),
             needs_full_redraw: false,
@@ -1272,9 +1268,6 @@ impl App {
         let pm_session = TmuxService::pm_session_name(project_id);
         let pm_dir = self.store.pm_dir(project_id);
 
-        // Cancel any pending prompt send from a previous trigger
-        self.pm_prompt_cancel.store(true, Ordering::Relaxed);
-
         // Kill existing PM session (fresh start each trigger for config reload)
         if self.tmux.session_exists(&pm_session) {
             let _ = self.tmux.kill_session(&pm_session);
@@ -1287,8 +1280,18 @@ impl App {
         std::fs::create_dir_all(&pm_dir)?;
         self.tmux.create_session(&pm_session, &pm_dir)?;
 
-        // Launch agent
-        self.tmux.launch_agent(&pm_session, &agent_cli, None)?;
+        // Write trigger prompt to file and pass as CLI argument (same as task creation)
+        let trigger_prompt = match agent_cli {
+            AgentCli::Claude => "/pm-manager",
+            AgentCli::Codex => "$pm-manager",
+            AgentCli::Gemini => "pm-managerスキルを使って現況確認を行ってください",
+            AgentCli::None => return Ok(()),
+        };
+        let prompt_file = pm_dir.join(".initial_prompt");
+        std::fs::write(&prompt_file, trigger_prompt)?;
+
+        // Launch agent with initial prompt embedded in CLI args
+        self.tmux.launch_agent(&pm_session, &agent_cli, Some(&prompt_file))?;
 
         // Save PM session name to project
         if let Some(proj) = self.projects.iter().find(|p| p.id == project_id).cloned() {
@@ -1297,27 +1300,6 @@ impl App {
             updated.updated_at = Utc::now();
             self.store.save_project(&updated)?;
         }
-
-        // Wait for agent startup, then send trigger prompt
-        let trigger_prompt = match agent_cli {
-            AgentCli::Claude => "/pm-manager".to_string(),
-            AgentCli::Codex => "$pm-manager".to_string(),
-            AgentCli::Gemini => "pm-managerスキルを使って現況確認を行ってください".to_string(),
-            AgentCli::None => return Ok(()),
-        };
-
-        // Create a fresh cancel flag for this trigger
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.pm_prompt_cancel = cancel.clone();
-
-        let tmux = TmuxService::new();
-        let session = pm_session.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            if !cancel.load(Ordering::Relaxed) {
-                let _ = tmux.send_prompt(&session, agent_cli, &trigger_prompt);
-            }
-        });
 
         self.active_sessions.insert(pm_session);
         self.needs_full_redraw = true;
