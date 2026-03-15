@@ -1268,6 +1268,10 @@ impl App {
         let pm_session = TmuxService::pm_session_name(project_id);
         let pm_dir = self.store.pm_dir(project_id);
 
+        // Remove guard file to cancel any pending Codex prompt thread
+        let guard_file = pm_dir.join(".pm_prompt_guard");
+        let _ = std::fs::remove_file(&guard_file);
+
         // Kill existing PM session (fresh start each trigger for config reload)
         if self.tmux.session_exists(&pm_session) {
             let _ = self.tmux.kill_session(&pm_session);
@@ -1288,9 +1292,11 @@ impl App {
         };
 
         let history_marker = pm_dir.join(".has_history");
+        // Create guard file for Codex deferred-prompt thread safety
+        let _ = std::fs::write(&guard_file, "");
         if history_marker.exists() {
             // Resume previous conversation to preserve context
-            self.tmux.launch_agent_resume(&pm_session, &agent_cli, trigger_prompt)?;
+            self.tmux.launch_agent_resume(&pm_session, &agent_cli, trigger_prompt, Some(&guard_file))?;
         } else {
             // First run: launch fresh with prompt file
             let prompt_file = pm_dir.join(".initial_prompt");
