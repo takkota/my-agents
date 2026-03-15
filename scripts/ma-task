@@ -755,6 +755,40 @@ cmd_prompt() {
         die "tmux session '${tmux_session}' does not exist"
     fi
 
+    # Check that the agent process is actually running in the pane
+    local expected_cmd=""
+    case "$agent_cli" in
+        Claude) expected_cmd="claude" ;;
+        Codex)  expected_cmd="codex" ;;
+        Gemini) expected_cmd="gemini" ;;
+    esac
+    if [ -n "$expected_cmd" ]; then
+        local pane_cmd
+        pane_cmd="$(tmux display-message -t "$tmux_session" -p '#{pane_current_command}' 2>/dev/null || true)"
+        # pane_current_command returns the foreground process name (e.g. "claude", "node", "bash")
+        # Agent CLIs may run via wrapper scripts, so also check pane processes via pane_pid
+        local agent_running=false
+        if [ -n "$pane_cmd" ]; then
+            # Direct match on pane foreground command
+            if [[ "$pane_cmd" == *"$expected_cmd"* ]]; then
+                agent_running=true
+            fi
+        fi
+        if [ "$agent_running" = false ]; then
+            # Fallback: check if the expected process exists in the pane's process tree
+            local pane_pid
+            pane_pid="$(tmux display-message -t "$tmux_session" -p '#{pane_pid}' 2>/dev/null || true)"
+            if [ -n "$pane_pid" ]; then
+                if pgrep -P "$pane_pid" -a 2>/dev/null | grep -q "$expected_cmd"; then
+                    agent_running=true
+                fi
+            fi
+        fi
+        if [ "$agent_running" = false ]; then
+            die "agent '${expected_cmd}' is not running in tmux session '${tmux_session}'. Start the agent first with 'ma-task run ${task_id}'."
+        fi
+    fi
+
     # Send prompt using agent-appropriate method
     case "$agent_cli" in
         Codex)
