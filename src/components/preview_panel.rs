@@ -1,4 +1,4 @@
-use crate::domain::task::TaskLink;
+use crate::domain::task::{AgentCli, TaskLink};
 use crate::services::tmux::TmuxService;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -15,6 +15,9 @@ pub struct ProjectInfo {
     pub repos: Vec<RepoInfo>,
     pub worktree_copy_files: Vec<String>,
     pub task_stats: TaskStats,
+    pub pm_enabled: bool,
+    pub pm_agent_cli: Option<AgentCli>,
+    pub pm_cron_expression: Option<String>,
 }
 
 #[derive(Clone)]
@@ -333,6 +336,31 @@ impl PreviewPanel {
             }
         }
 
+        // PM section
+        if info.pm_enabled {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![Span::styled(
+                " Project Manager ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+            let agent_name = info
+                .pm_agent_cli
+                .map(|a| format!("{}", a))
+                .unwrap_or_else(|| "Claude".to_string());
+            lines.push(Line::from(vec![
+                Span::raw("  Agent: "),
+                Span::styled(agent_name, Style::default().fg(Color::White)),
+            ]));
+            if let Some(cron) = &info.pm_cron_expression {
+                lines.push(Line::from(vec![
+                    Span::raw("  Cron:  "),
+                    Span::styled(cron.clone(), Style::default().fg(Color::White)),
+                ]));
+            }
+        }
+
         let paragraph = Paragraph::new(lines)
             .block(
                 Block::default()
@@ -371,7 +399,18 @@ impl PreviewPanel {
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         if self.project_info.is_some() {
-            self.render_project_info(frame, area);
+            // If PM session is active, split between project info and session content
+            if self.current_session.is_some() {
+                let chunks = Layout::vertical([
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(60),
+                ])
+                .split(area);
+                self.render_project_info(frame, chunks[0]);
+                self.render_session(frame, chunks[1]);
+            } else {
+                self.render_project_info(frame, area);
+            }
             return;
         }
 

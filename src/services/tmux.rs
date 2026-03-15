@@ -244,6 +244,10 @@ impl TmuxService {
         format!("ma-{}-{}", project_id, &task_id[..task_id.len().min(6)])
     }
 
+    pub fn pm_session_name(project_id: &str) -> String {
+        format!("ma-pm-{}", project_id)
+    }
+
     pub fn list_sessions(&self) -> AppResult<Vec<String>> {
         let output = Self::tmux_cmd()
             .args(["list-sessions", "-F", "#{session_name}"])

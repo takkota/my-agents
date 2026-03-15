@@ -21,6 +21,7 @@ use crate::domain::task::{AgentCli, Priority, Status, Task, TaskLink};
 use crate::error::AppResult;
 use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
+use crate::services::pm_scheduler::{PmScheduler, PmSchedulerEvent};
 use crate::services::pr_monitor::PrMonitor;
 use crate::services::task_setup::{self, write_initial_prompt, TaskSetupInput};
 use crate::services::tmux::TmuxService;
@@ -70,6 +71,7 @@ pub struct App {
     // Monitors
     agent_monitor: AgentMonitor,
     pr_monitor: PrMonitor,
+    pm_scheduler: PmScheduler,
     tick_count: u64,
 
     // Filesystem change detection
@@ -116,6 +118,7 @@ impl App {
         let worktree_svc = WorktreeService::new();
         let agent_monitor = AgentMonitor::new(store.clone(), TmuxService::new());
         let pr_monitor = PrMonitor::new(store.clone());
+        let pm_scheduler = PmScheduler::new(store.clone());
 
         // Start background git repo scan immediately
         let (tx, rx) = mpsc::channel();
@@ -141,6 +144,7 @@ impl App {
             task_setup_rx: Vec::new(),
             agent_monitor,
             pr_monitor,
+            pm_scheduler,
             tick_count: 0,
             last_data_fingerprint: (0, 0),
             needs_full_redraw: false,
@@ -400,6 +404,12 @@ impl App {
             KeyCode::Char('U') => {
                 return Ok(Some(Action::OpenCustomPrompt));
             }
+            KeyCode::Char('M') => {
+                if let Some(item) = self.task_tree.selected_item() {
+                    let project_id = item.project_id().to_string();
+                    return Ok(Some(Action::StartPmSession { project_id }));
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
             KeyCode::Down | KeyCode::Char('j') => return Ok(Some(Action::MoveDown)),
             KeyCode::Enter => return Ok(Some(Action::AttachSession)),
@@ -481,6 +491,14 @@ impl App {
                                 .unwrap_or_default();
                             let current_dev_env_prompt: Option<String> =
                                 project.and_then(|p| p.dev_environment_prompt.clone());
+                            let current_pm_enabled =
+                                project.map(|p| p.pm_enabled).unwrap_or(false);
+                            let current_pm_agent_cli =
+                                project.and_then(|p| p.pm_agent_cli);
+                            let current_pm_cron: Option<String> =
+                                project.and_then(|p| p.pm_cron_expression.clone());
+                            let current_pm_custom_instructions: Option<String> =
+                                project.and_then(|p| p.pm_custom_instructions.clone());
 
                             self.active_modal = Some(ModalKind::EditItem(EditItemModal::Project(
                                 EditProjectModal::new(
@@ -491,6 +509,10 @@ impl App {
                                     selected_repos,
                                     current_copy_files,
                                     current_dev_env_prompt,
+                                    current_pm_enabled,
+                                    current_pm_agent_cli,
+                                    current_pm_cron,
+                                    current_pm_custom_instructions,
                                 ),
                             )));
                         }
@@ -642,6 +664,10 @@ impl App {
                 repos,
                 worktree_copy_files,
                 dev_environment_prompt,
+                pm_enabled,
+                pm_agent_cli,
+                pm_custom_instructions,
+                pm_cron_expression,
             } => {
                 // Check for duplicate project ID
                 if self.projects.iter().any(|p| p.id == name) {
@@ -660,6 +686,11 @@ impl App {
                     description,
                     worktree_copy_files,
                     dev_environment_prompt,
+                    pm_enabled,
+                    pm_agent_cli,
+                    pm_custom_instructions,
+                    pm_cron_expression,
+                    pm_tmux_session: None,
                     created_at: now,
                     updated_at: now,
                 };
@@ -676,6 +707,10 @@ impl App {
                 repos,
                 worktree_copy_files,
                 dev_environment_prompt,
+                pm_enabled,
+                pm_agent_cli,
+                pm_custom_instructions,
+                pm_cron_expression,
             } => {
                 if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
                     let mut updated = project;
@@ -687,6 +722,16 @@ impl App {
                         .collect();
                     updated.worktree_copy_files = worktree_copy_files;
                     updated.dev_environment_prompt = dev_environment_prompt;
+                    // If PM was disabled, kill session
+                    if updated.pm_enabled && !pm_enabled {
+                        let pm_session = TmuxService::pm_session_name(&project_id);
+                        let _ = self.tmux.kill_session(&pm_session);
+                        updated.pm_tmux_session = None;
+                    }
+                    updated.pm_enabled = pm_enabled;
+                    updated.pm_agent_cli = pm_agent_cli;
+                    updated.pm_custom_instructions = pm_custom_instructions;
+                    updated.pm_cron_expression = pm_cron_expression;
                     updated.updated_at = Utc::now();
                     self.store.save_project(&updated)?;
                 }
@@ -695,6 +740,9 @@ impl App {
                 self.rebuild_tree();
             }
             Action::DeleteProject { project_id } => {
+                // Kill PM session if active
+                let pm_session = TmuxService::pm_session_name(&project_id);
+                let _ = self.tmux.kill_session(&pm_session);
                 // Kill tmux sessions and remove worktrees for all tasks
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     for task in tasks {
@@ -988,6 +1036,26 @@ impl App {
                 }
             }
 
+            Action::StartPmSession { project_id } => {
+                if let Err(e) = self.handle_pm_trigger(&project_id) {
+                    self.error_message = Some(format!("Failed to start PM session: {}", e));
+                }
+            }
+
+            Action::StopPmSession { project_id } => {
+                let pm_session = TmuxService::pm_session_name(&project_id);
+                let _ = self.tmux.kill_session(&pm_session);
+                // Clear pm_tmux_session from project
+                if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
+                    let mut updated = project;
+                    updated.pm_tmux_session = None;
+                    updated.updated_at = Utc::now();
+                    let _ = self.store.save_project(&updated);
+                }
+                let _ = self.reload_data();
+                self.rebuild_tree();
+            }
+
             Action::Tick => {
                 self.tick_count += 1;
 
@@ -1006,16 +1074,37 @@ impl App {
                 self.refresh_preview_task_info();
 
                 let session_name = self.task_tree.selected_item().and_then(|item| {
-                    if let TreeItem::Task { id, project_id, .. } = item {
-                        self.tasks_by_project
-                            .get(project_id.as_str())
-                            .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
-                            .and_then(|t| t.tmux_session.as_deref())
+                    match item {
+                        TreeItem::Task { id, project_id, .. } => {
+                            self.tasks_by_project
+                                .get(project_id.as_str())
+                                .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
+                                .and_then(|t| t.tmux_session.as_deref())
+                        }
+                        TreeItem::Project { id, .. } => {
+                            let pm_session = TmuxService::pm_session_name(id);
+                            if self.active_sessions.contains(&pm_session) {
+                                // Return a reference-compatible value
+                                None // handled below
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                });
+                // For project with PM session, show PM session content
+                let session_name_owned = if session_name.is_some() {
+                    session_name.map(|s| s.to_string())
+                } else if let Some(TreeItem::Project { id, .. }) = self.task_tree.selected_item() {
+                    let pm_session = TmuxService::pm_session_name(id);
+                    if self.active_sessions.contains(&pm_session) {
+                        Some(pm_session)
                     } else {
                         None
                     }
-                });
-                let session_name_owned = session_name.map(|s| s.to_string());
+                } else {
+                    None
+                };
                 self.preview_panel
                     .update_preview(session_name_owned.as_deref(), &self.tmux);
 
@@ -1127,6 +1216,23 @@ impl App {
                     }
                 }
 
+                // PM scheduler: check every 60 seconds
+                let pm_interval_ticks = (60_000 / self.config.tick_rate_ms).max(1);
+                if self.tick_count.is_multiple_of(pm_interval_ticks) {
+                    let now = Utc::now();
+                    let pm_events = self.pm_scheduler.check_all(now);
+                    for event in pm_events {
+                        match event {
+                            PmSchedulerEvent::TriggerPm { project_id } => {
+                                if let Err(e) = self.handle_pm_trigger(&project_id) {
+                                    self.error_message =
+                                        Some(format!("PM trigger failed: {}", e));
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if data_changed {
                     self.reload_data()?;
                     self.rebuild_tree();
@@ -1136,6 +1242,74 @@ impl App {
         }
 
         Ok(UpdateResult::Continue)
+    }
+
+    fn handle_pm_trigger(&mut self, project_id: &str) -> AppResult<()> {
+        let project = self
+            .projects
+            .iter()
+            .find(|p| p.id == project_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Project not found: {}", project_id))?;
+
+        if !project.pm_enabled {
+            return Ok(());
+        }
+
+        let agent_cli = project
+            .pm_agent_cli
+            .unwrap_or(crate::domain::task::AgentCli::Claude);
+        if agent_cli == AgentCli::None {
+            return Ok(());
+        }
+
+        let pm_session = TmuxService::pm_session_name(project_id);
+        let pm_dir = self.store.pm_dir(project_id);
+
+        // Kill existing PM session (fresh start each trigger for config reload)
+        if self.tmux.session_exists(&pm_session) {
+            let _ = self.tmux.kill_session(&pm_session);
+        }
+
+        // Write PM config files
+        self.store.write_pm_config_files(&project)?;
+
+        // Create PM session
+        std::fs::create_dir_all(&pm_dir)?;
+        self.tmux.create_session(&pm_session, &pm_dir)?;
+
+        // Launch agent
+        self.tmux.launch_agent(&pm_session, &agent_cli, None)?;
+
+        // Save PM session name to project
+        if let Some(proj) = self.projects.iter().find(|p| p.id == project_id).cloned() {
+            let mut updated = proj;
+            updated.pm_tmux_session = Some(pm_session.clone());
+            updated.updated_at = Utc::now();
+            self.store.save_project(&updated)?;
+        }
+
+        // Wait for agent startup, then send trigger prompt
+        let trigger_prompt = match agent_cli {
+            AgentCli::Claude => "/pm-manager".to_string(),
+            AgentCli::Codex => "$pm-manager".to_string(),
+            AgentCli::Gemini => "pm-managerスキルを使って現況確認を行ってください".to_string(),
+            AgentCli::None => return Ok(()),
+        };
+
+        let tmux = TmuxService::new();
+        let session = pm_session.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let _ = tmux.send_prompt(&session, agent_cli, &trigger_prompt);
+        });
+
+        self.active_sessions.insert(pm_session);
+        self.needs_full_redraw = true;
+        let _ = self.reload_data();
+        self.rebuild_tree();
+
+        Ok(())
     }
 
     fn handle_create_task(
@@ -1233,7 +1407,13 @@ impl App {
         let item = self.task_tree.selected_item().cloned()?;
 
         match item {
-            TreeItem::Project { .. } => {
+            TreeItem::Project { id, .. } => {
+                // If PM is enabled and session exists, attach to it
+                let pm_session = TmuxService::pm_session_name(&id);
+                if self.tmux.session_exists(&pm_session) {
+                    return Some(pm_session);
+                }
+                // Otherwise toggle expand
                 self.task_tree.toggle_expand();
                 self.rebuild_tree();
                 None
@@ -1410,6 +1590,10 @@ impl App {
 
                 let project_dir = self.store.project_dir(id);
 
+                let pm_enabled = project.map(|p| p.pm_enabled).unwrap_or(false);
+                let pm_agent_cli = project.and_then(|p| p.pm_agent_cli);
+                let pm_cron_expression = project.and_then(|p| p.pm_cron_expression.clone());
+
                 self.preview_panel.update_project_info(
                     crate::components::preview_panel::ProjectInfo {
                         name: name.clone(),
@@ -1418,6 +1602,9 @@ impl App {
                         repos,
                         worktree_copy_files,
                         task_stats: stats,
+                        pm_enabled,
+                        pm_agent_cli,
+                        pm_cron_expression,
                     },
                 );
             }

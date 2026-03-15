@@ -1075,6 +1075,292 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
         Ok(())
     }
 
+    // PM (Project Manager) methods
+
+    pub fn pm_dir(&self, project_id: &str) -> PathBuf {
+        self.project_dir(project_id).join("pm")
+    }
+
+    pub fn write_pm_config_files(&self, project: &Project) -> AppResult<()> {
+        let pm_dir = self.pm_dir(&project.id);
+        fs::create_dir_all(&pm_dir)?;
+
+        let agent_cli = project.pm_agent_cli.unwrap_or(crate::domain::task::AgentCli::Claude);
+        let custom_instructions = project.pm_custom_instructions.as_deref().unwrap_or("");
+
+        let pm_config_body = Self::pm_config_body(project, custom_instructions);
+        let pm_skill = Self::pm_skill_body(project);
+
+        match agent_cli {
+            crate::domain::task::AgentCli::Claude => {
+                // Write CLAUDE.md
+                fs::write(pm_dir.join("CLAUDE.md"), &pm_config_body)?;
+
+                // Write PM skill
+                let skill_dir = pm_dir.join(".claude").join("skills").join("pm-manager");
+                fs::create_dir_all(&skill_dir)?;
+                let skill_md = format!(
+                    "---\n\
+                     name: pm-manager\n\
+                     description: \"Use to check project task progress, analyze agent sessions, and provide status reports with recommendations.\"\n\
+                     allowed-tools: Bash\n\
+                     ---\n\n{}",
+                    pm_skill,
+                );
+                fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+
+                // Write Stop hook only
+                self.write_pm_claude_hooks(project)?;
+
+                // Copy project-level skills
+                self.copy_pm_project_skills(project)?;
+
+                // Trust PM dir
+                Self::ensure_claude_trust(&pm_dir)?;
+            }
+            crate::domain::task::AgentCli::Codex => {
+                // Write AGENTS.md
+                fs::write(pm_dir.join("AGENTS.md"), &pm_config_body)?;
+
+                // Write PM skill for Codex
+                let skill_dir = pm_dir.join(".agents").join("skills").join("pm-manager");
+                fs::create_dir_all(&skill_dir)?;
+                let skill_md = format!(
+                    "---\n\
+                     name: pm-manager\n\
+                     description: Use to check project task progress, analyze agent sessions, and provide status reports with recommendations.\n\
+                     ---\n\n{}",
+                    pm_skill,
+                );
+                fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+
+                // Copy project-level skills
+                self.copy_pm_project_skills(project)?;
+            }
+            crate::domain::task::AgentCli::Gemini => {
+                // Write GEMINI.md
+                fs::write(pm_dir.join("GEMINI.md"), &pm_config_body)?;
+
+                // Write AfterAgent hook only
+                self.write_pm_gemini_hooks(project)?;
+
+                // Copy project-level skills
+                self.copy_pm_project_skills(project)?;
+            }
+            crate::domain::task::AgentCli::None => {}
+        }
+
+        Ok(())
+    }
+
+    fn pm_config_body(project: &Project, custom_instructions: &str) -> String {
+        let mut lines = Vec::new();
+        lines.push("# Project Manager Agent".to_string());
+        lines.push(String::new());
+        lines.push(format!(
+            "You are the Project Manager (PM) for the **{}** project.",
+            project.name
+        ));
+        lines.push("You are triggered periodically to review task progress and provide recommendations.".to_string());
+        lines.push(String::new());
+        lines.push("## Your Responsibilities".to_string());
+        lines.push(String::new());
+        lines.push("1. Review the current status of all tasks in this project".to_string());
+        lines.push("2. Check agent session outputs for progress updates".to_string());
+        lines.push("3. Identify blocked or stalled tasks".to_string());
+        lines.push("4. Provide a concise status report with actionable recommendations".to_string());
+        lines.push(String::new());
+
+        let agent_cli = project.pm_agent_cli.unwrap_or(crate::domain::task::AgentCli::Claude);
+        match agent_cli {
+            crate::domain::task::AgentCli::Claude => {
+                lines.push("## How to Start".to_string());
+                lines.push(String::new());
+                lines.push("Use the `/pm-manager` skill to perform your review.".to_string());
+            }
+            crate::domain::task::AgentCli::Codex => {
+                lines.push("## How to Start".to_string());
+                lines.push(String::new());
+                lines.push("Use the `$pm-manager` skill to perform your review.".to_string());
+            }
+            crate::domain::task::AgentCli::Gemini => {
+                lines.push("## How to Start".to_string());
+                lines.push(String::new());
+                lines.push("Use the pm-manager skill instructions below to perform your review.".to_string());
+            }
+            _ => {}
+        }
+
+        if !custom_instructions.is_empty() {
+            lines.push(String::new());
+            lines.push("## Custom Instructions".to_string());
+            lines.push(String::new());
+            lines.push(custom_instructions.to_string());
+        }
+
+        lines.join("\n") + "\n"
+    }
+
+    fn pm_skill_body(project: &Project) -> String {
+        format!(
+            r#"# PM Manager Skill
+
+You are the Project Manager for **{project_id}**.
+
+## Step 1: Get Task List
+
+```bash
+ma-task list --project {project_id}
+```
+
+Review the JSON output to understand all tasks and their statuses.
+
+## Step 2: Check Agent Sessions
+
+For each task that has a tmux session, capture its recent output:
+
+```bash
+ma-task list --project {project_id} | jq -r '.[] | select(.tmux_session != null) | .tmux_session' | while read session; do
+  echo "=== Session: $session ==="
+  tmux capture-pane -t "$session" -p 2>/dev/null || echo "(session not active)"
+  echo ""
+done
+```
+
+## Step 3: Analyze and Report
+
+Based on the task list and session outputs, provide:
+
+1. **Status Summary**: Brief overview of each task's progress
+2. **Stalled Tasks**: Identify tasks that appear stuck or have no recent activity
+3. **Action Items**: Specific recommendations (e.g., "Task X needs review", "Task Y is blocked on Z")
+4. **Priority Adjustments**: Suggest priority changes if needed
+
+## Step 4: Take Action (if appropriate)
+
+You can update task statuses or create new tasks:
+
+```bash
+ma-task status <task-id> <status>
+ma-task create --project {project_id} --name "task name" --priority P3
+```
+
+## Guidelines
+
+- Be concise and actionable
+- Skip tasks that have no changes since last check
+- Focus on tasks that need attention (InProgress, ActionRequired, Blocked)
+- Do not modify tasks that are Completed unless there's a clear issue
+"#,
+            project_id = project.id,
+        )
+    }
+
+    fn write_pm_claude_hooks(&self, project: &Project) -> AppResult<()> {
+        let pm_dir = self.pm_dir(&project.id);
+        let claude_dir = pm_dir.join(".claude");
+        fs::create_dir_all(&claude_dir)?;
+
+        // PM only needs Stop hook (no UserPromptSubmit or PostToolUse)
+        let settings = serde_json::json!({
+            "hooks": {
+                "Stop": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "true"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        // Merge allowed settings from project-level .claude/settings.json
+        let mut settings = settings;
+        const ALLOWED_PROJECT_KEYS: &[&str] = &["enabledPlugins"];
+        let project_settings_path = self
+            .project_dir(&project.id)
+            .join(".claude")
+            .join("settings.json");
+        if project_settings_path.exists() {
+            if let Ok(content) = fs::read_to_string(&project_settings_path) {
+                if let Ok(project_settings) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(project_obj) = project_settings.as_object() {
+                        if let Some(settings_obj) = settings.as_object_mut() {
+                            for key in ALLOWED_PROJECT_KEYS {
+                                if let Some(value) = project_obj.get(*key) {
+                                    settings_obj.insert((*key).to_string(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        fs::write(
+            claude_dir.join("settings.json"),
+            serde_json::to_string_pretty(&settings)?,
+        )?;
+
+        Ok(())
+    }
+
+    fn write_pm_gemini_hooks(&self, project: &Project) -> AppResult<()> {
+        let pm_dir = self.pm_dir(&project.id);
+        let gemini_dir = pm_dir.join(".gemini");
+        fs::create_dir_all(&gemini_dir)?;
+
+        // PM only needs AfterAgent hook
+        let settings = serde_json::json!({
+            "hooks": {
+                "AfterAgent": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "true"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        fs::write(
+            gemini_dir.join("settings.json"),
+            serde_json::to_string_pretty(&settings)?,
+        )?;
+
+        Ok(())
+    }
+
+    /// Copy project-level skills to PM directory
+    fn copy_pm_project_skills(&self, project: &Project) -> AppResult<()> {
+        let project_dir = self.project_dir(&project.id);
+        let pm_dir = self.pm_dir(&project.id);
+
+        let project_claude_skills = project_dir.join(".claude").join("skills");
+        if project_claude_skills.is_dir() {
+            let pm_claude_skills = pm_dir.join(".claude").join("skills");
+            fs::create_dir_all(&pm_claude_skills)?;
+            Self::copy_skills_dir(&project_claude_skills, &pm_claude_skills)?;
+        }
+
+        let project_agents_skills = project_dir.join(".agents").join("skills");
+        if project_agents_skills.is_dir() {
+            let pm_agents_skills = pm_dir.join(".agents").join("skills");
+            fs::create_dir_all(&pm_agents_skills)?;
+            Self::copy_skills_dir(&project_agents_skills, &pm_agents_skills)?;
+        }
+
+        Ok(())
+    }
+
     pub fn ensure_quickstart(&self) -> AppResult<()> {
         let projects = self.list_projects()?;
         if !projects.is_empty() {
@@ -1095,6 +1381,11 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
             description: None,
             worktree_copy_files: Vec::new(),
             dev_environment_prompt: None,
+            pm_enabled: false,
+            pm_agent_cli: None,
+            pm_custom_instructions: None,
+            pm_cron_expression: None,
+            pm_tmux_session: None,
             created_at: now,
             updated_at: now,
         };

@@ -30,6 +30,10 @@ pub enum Action {
         repos: Vec<(String, PathBuf)>,
         worktree_copy_files: Vec<String>,
         dev_environment_prompt: Option<String>,
+        pm_enabled: bool,
+        pm_agent_cli: Option<AgentCli>,
+        pm_custom_instructions: Option<String>,
+        pm_cron_expression: Option<String>,
     },
     UpdateProject {
         project_id: String,
@@ -38,8 +42,18 @@ pub enum Action {
         repos: Vec<(String, PathBuf)>,
         worktree_copy_files: Vec<String>,
         dev_environment_prompt: Option<String>,
+        pm_enabled: bool,
+        pm_agent_cli: Option<AgentCli>,
+        pm_custom_instructions: Option<String>,
+        pm_cron_expression: Option<String>,
     },
     DeleteProject {
+        project_id: String,
+    },
+    StartPmSession {
+        project_id: String,
+    },
+    StopPmSession {
         project_id: String,
     },
 

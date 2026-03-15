@@ -1,3 +1,4 @@
+use crate::domain::task::AgentCli;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -13,6 +14,16 @@ pub struct Project {
     pub worktree_copy_files: Vec<String>,
     #[serde(default)]
     pub dev_environment_prompt: Option<String>,
+    #[serde(default)]
+    pub pm_enabled: bool,
+    #[serde(default)]
+    pub pm_agent_cli: Option<AgentCli>,
+    #[serde(default)]
+    pub pm_custom_instructions: Option<String>,
+    #[serde(default)]
+    pub pm_cron_expression: Option<String>,
+    #[serde(default)]
+    pub pm_tmux_session: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
