@@ -1446,8 +1446,9 @@ impl App {
                     if self.tmux.is_agent_running_in_session(&pm_session) {
                         let _ = self.tmux.kill_foreground_process(&pm_session);
                     }
-                    // Launch agent interactively with resume if not already running
-                    if !self.tmux.is_agent_running_in_session(&pm_session) {
+                    // Launch agent interactively with resume if shell prompt is showing
+                    // (i.e., no agent is currently running)
+                    if self.tmux.is_shell_prompt(&pm_session) {
                         let pm_state_dir = self.store.pm_dir(&id);
                         let history_marker = pm_state_dir.join(".has_history");
                         let guard_file = pm_state_dir.join(".pm_prompt_guard");
