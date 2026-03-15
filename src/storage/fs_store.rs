@@ -1215,45 +1215,45 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
 
     fn pm_config_body(project: &Project, custom_instructions: &str) -> String {
         let mut lines = Vec::new();
-        lines.push("# Project Manager Agent".to_string());
+        lines.push("# プロジェクトマネージャーエージェント".to_string());
         lines.push(String::new());
         lines.push(format!(
-            "You are the Project Manager (PM) for the **{}** project.",
+            "あなたは **{}** プロジェクトのプロジェクトマネージャー（PM）です。",
             project.name
         ));
-        lines.push("You are triggered periodically to review task progress and provide recommendations.".to_string());
+        lines.push("定期的にトリガーされ、タスクの進捗を確認し、推奨事項を提示します。".to_string());
         lines.push(String::new());
-        lines.push("## Your Responsibilities".to_string());
+        lines.push("## あなたの責務".to_string());
         lines.push(String::new());
-        lines.push("1. Review the current status of all tasks in this project".to_string());
-        lines.push("2. Check agent session outputs for progress updates".to_string());
-        lines.push("3. Identify blocked or stalled tasks".to_string());
-        lines.push("4. Provide a concise status report with actionable recommendations".to_string());
+        lines.push("1. このプロジェクトの全タスクの現状を確認する".to_string());
+        lines.push("2. エージェントセッションの出力から進捗を確認する".to_string());
+        lines.push("3. ブロックまたは停滞しているタスクを特定する".to_string());
+        lines.push("4. 簡潔なステータスレポートと具体的な推奨事項を提示する".to_string());
         lines.push(String::new());
 
         let agent_cli = project.pm_agent_cli.unwrap_or(crate::domain::task::AgentCli::Claude);
         match agent_cli {
             crate::domain::task::AgentCli::Claude => {
-                lines.push("## How to Start".to_string());
+                lines.push("## 開始方法".to_string());
                 lines.push(String::new());
-                lines.push("Use the `/pm-manager` skill to perform your review.".to_string());
+                lines.push("`/pm-manager` スキルを使用してレビューを実行してください。".to_string());
             }
             crate::domain::task::AgentCli::Codex => {
-                lines.push("## How to Start".to_string());
+                lines.push("## 開始方法".to_string());
                 lines.push(String::new());
-                lines.push("Use the `$pm-manager` skill to perform your review.".to_string());
+                lines.push("`$pm-manager` スキルを使用してレビューを実行してください。".to_string());
             }
             crate::domain::task::AgentCli::Gemini => {
-                lines.push("## How to Start".to_string());
+                lines.push("## 開始方法".to_string());
                 lines.push(String::new());
-                lines.push("Use the pm-manager skill to perform your review.".to_string());
+                lines.push("pm-managerスキルを使用してレビューを実行してください。".to_string());
             }
             _ => {}
         }
 
         if !custom_instructions.is_empty() {
             lines.push(String::new());
-            lines.push("## Custom Instructions".to_string());
+            lines.push("## カスタム指示".to_string());
             lines.push(String::new());
             lines.push(custom_instructions.to_string());
         }
@@ -1263,54 +1263,56 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
 
     fn pm_skill_body(project: &Project) -> String {
         format!(
-            r#"# PM Manager Skill
+            r#"# PMマネージャースキル
 
-You are the Project Manager for **{project_id}**.
+あなたは **{project_id}** のプロジェクトマネージャーです。
 
-## Step 1: Get Task List
+**重要: すべての出力・レポートは日本語で記述してください。**
+
+## ステップ1: タスク一覧の取得
 
 ```bash
 ma-task list --project {project_id}
 ```
 
-Review the JSON output to understand all tasks and their statuses.
+JSON出力を確認し、すべてのタスクとそのステータスを把握してください。
 
-## Step 2: Check Agent Sessions
+## ステップ2: エージェントセッションの確認
 
-For each task that has a tmux session, capture its recent output:
+tmuxセッションを持つ各タスクについて、最新の出力をキャプチャします：
 
 ```bash
 ma-task list --project {project_id} | jq -r '.[] | select(.tmux_session != null) | .tmux_session' | while read session; do
-  echo "=== Session: $session ==="
-  tmux capture-pane -t "$session" -p 2>/dev/null || echo "(session not active)"
+  echo "=== セッション: $session ==="
+  tmux capture-pane -t "$session" -p 2>/dev/null || echo "(セッション未アクティブ)"
   echo ""
 done
 ```
 
-## Step 3: Analyze and Report
+## ステップ3: 分析とレポート
 
-Based on the task list and session outputs, provide:
+タスク一覧とセッション出力に基づき、以下を提示してください：
 
-1. **Status Summary**: Brief overview of each task's progress
-2. **Stalled Tasks**: Identify tasks that appear stuck or have no recent activity
-3. **Action Items**: Specific recommendations (e.g., "Task X needs review", "Task Y is blocked on Z")
-4. **Priority Adjustments**: Suggest priority changes if needed
+1. **ステータス概要**: 各タスクの進捗の簡潔な概要
+2. **停滞タスク**: 進展がない、または停滞していると思われるタスクの特定
+3. **アクション項目**: 具体的な推奨事項（例：「タスクXはレビューが必要」「タスクYはZでブロックされている」）
+4. **優先度の調整**: 必要に応じて優先度の変更を提案
 
-## Step 4: Take Action (if appropriate)
+## ステップ4: アクションの実行（必要に応じて）
 
-You can update task statuses or create new tasks:
+タスクのステータス更新や新規タスクの作成が可能です：
 
 ```bash
 ma-task status <task-id> <status>
-ma-task create --project {project_id} --name "task name" --priority P3
+ma-task create --project {project_id} --name "タスク名" --priority P3
 ```
 
-## Guidelines
+## ガイドライン
 
-- Be concise and actionable
-- Skip tasks that have no changes since last check
-- Focus on tasks that need attention (InProgress, ActionRequired, Blocked)
-- Do not modify tasks that are Completed unless there's a clear issue
+- 簡潔で実行可能な内容にする
+- 前回の確認から変更がないタスクはスキップする
+- 注意が必要なタスク（InProgress、ActionRequired、Blocked）に集中する
+- 明確な問題がない限り、Completedのタスクは変更しない
 "#,
             project_id = project.id,
         )
