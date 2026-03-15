@@ -148,6 +148,70 @@ impl TmuxService {
         Ok(sanitize_for_display(raw))
     }
 
+    /// Check if an agent CLI process (claude, codex, gemini) is running in the session.
+    pub fn is_agent_running_in_session(&self, session: &str) -> bool {
+        let output = Self::tmux_cmd()
+            .args(["list-panes", "-t", session, "-F", "#{pane_current_command}"])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let cmd_output = String::from_utf8_lossy(&o.stdout);
+                cmd_output.lines().any(|line| {
+                    let cmd = line.trim();
+                    cmd == "claude" || cmd == "codex" || cmd == "gemini"
+                        || cmd == "node" // claude/codex often show as node
+                })
+            }
+            _ => false,
+        }
+    }
+
+    /// Send Ctrl+C to kill the foreground process in a tmux session.
+    pub fn kill_foreground_process(&self, session: &str) -> AppResult<()> {
+        Self::tmux_cmd()
+            .args(["send-keys", "-t", session, "C-c", ""])
+            .output()?;
+        // Give the process a moment to terminate
+        std::thread::sleep(Duration::from_millis(500));
+        // Send another Ctrl+C in case the first was caught by a prompt
+        Self::tmux_cmd()
+            .args(["send-keys", "-t", session, "C-c", ""])
+            .output()?;
+        std::thread::sleep(Duration::from_millis(500));
+        Ok(())
+    }
+
+    /// Launch an agent in non-interactive mode, redirecting output to a file.
+    /// The agent runs inside the tmux session for correct cwd/PATH but output
+    /// is captured to the specified file for preview display.
+    pub fn launch_agent_non_interactive(
+        &self,
+        session: &str,
+        cli: &AgentCli,
+        prompt: &str,
+        output_file: &Path,
+        resume: bool,
+    ) -> AppResult<()> {
+        let base_cmd = if resume {
+            cli.non_interactive_resume_command()
+        } else {
+            cli.non_interactive_command()
+        };
+        if let Some(cmd) = base_cmd {
+            let escaped_prompt = prompt
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('`', "\\`")
+                .replace('$', "\\$");
+            let output_path = output_file.to_string_lossy();
+            let full_cmd = format!("{} \"{}\" > '{}' 2>&1", cmd, escaped_prompt, output_path);
+            Self::tmux_cmd()
+                .args(["send-keys", "-t", session, &full_cmd, "Enter"])
+                .output()?;
+        }
+        Ok(())
+    }
+
     pub fn launch_agent(
         &self,
         session: &str,

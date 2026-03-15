@@ -112,6 +112,27 @@ impl AgentCli {
         })
     }
 
+    /// Returns the launch command for non-interactive (headless) execution.
+    /// Output is plain text suitable for file capture. Used by PM triggers.
+    pub fn non_interactive_command(&self) -> Option<String> {
+        self.command().map(|cmd| match self {
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions -p", cmd),
+            AgentCli::Codex => format!("{} -q", cmd),
+            AgentCli::Gemini => format!("{} --approval-mode=yolo -p", cmd),
+            AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
+        })
+    }
+
+    /// Returns the non-interactive command that resumes the previous conversation.
+    pub fn non_interactive_resume_command(&self) -> Option<String> {
+        self.command().map(|cmd| match self {
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue -p", cmd),
+            AgentCli::Codex => format!("{} -q", cmd), // Codex -q doesn't support resume
+            AgentCli::Gemini => format!("{} --approval-mode=yolo --resume -p", cmd),
+            AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
+        })
+    }
+
     /// Returns the launch command that resumes the previous conversation.
     /// Used by PM sessions to preserve context across cron triggers.
     pub fn resume_command(&self) -> Option<String> {

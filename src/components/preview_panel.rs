@@ -5,7 +5,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct ProjectInfo {
@@ -86,6 +86,26 @@ impl PreviewPanel {
             _ => {
                 self.current_session = None;
                 self.content = "No active session.\n\nSelect a task and press Enter to start a session.".to_string();
+            }
+        }
+    }
+
+    /// Update preview from a file (used for PM non-interactive output).
+    /// Reads the file content and displays it in the preview panel.
+    pub fn update_preview_from_file(&mut self, file_path: &Path, session_label: &str) {
+        self.current_session = Some(format!("PM: {}", session_label));
+        match std::fs::read_to_string(file_path) {
+            Ok(content) if !content.is_empty() => {
+                // Limit to last 500 lines to avoid huge reads
+                let lines: Vec<&str> = content.lines().collect();
+                let start = lines.len().saturating_sub(500);
+                self.content = lines[start..].join("\n");
+            }
+            Ok(_) => {
+                self.content = "PM is running... (waiting for output)".to_string();
+            }
+            Err(_) => {
+                self.content = "No PM output yet.".to_string();
             }
         }
     }
