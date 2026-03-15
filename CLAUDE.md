@@ -16,7 +16,7 @@ cargo install --path .     # Install binary as `my-agents`
 
 ## What This Is
 
-A TUI-based task manager for AI coding agents (Claude Code / Codex). It manages multiple agent sessions per project, each with its own tmux session and git worktree. Data is stored as JSON files under `~/.my-agents/`.
+A TUI-based task manager for AI coding agents (Claude Code / Codex / Gemini CLI). It manages multiple agent sessions per project, each with its own tmux session and git worktree. Data is stored as JSON files under `~/.my-agents/`.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Modals take input priority when active. Ctrl+N/P/F/B/A/E are remapped to arrow/c
 Single enum representing all possible state transitions. Modal `handle_key()` methods return `Action` variants to communicate back to `App`.
 
 ### Domain (domain/)
-- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/None), worktrees, links
+- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/Gemini/None), worktrees, links
 - `Project` — groups tasks, references git repos (`RepoRef`), configures `worktree_copy_files`
 
 ### Storage (storage/fs_store.rs)
@@ -74,9 +74,9 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - Task IDs are first 8 chars of UUID v4
 - tmux session names follow pattern: `ma-{project_id}-{task_id_prefix}`
 - Worktree branches: `{task_id_6char}` (first 6 chars of task ID, no slashes)
-- `.prompt_submitted` marker in task dir — created by `UserPromptSubmit` hook (Claude) or notify script (Codex) when user sends a prompt; triggers Todo/Completed/ActionRequired → InProgress
-- `.agent_stopped` marker in task dir — created by `Stop` hook (Claude) or notify script (Codex) when agent finishes responding; triggers InProgress → ActionRequired
+- `.prompt_submitted` marker in task dir — created by `UserPromptSubmit` hook (Claude), `BeforeAgent` hook (Gemini), or notify script (Codex) when user sends a prompt; triggers Todo/Completed/ActionRequired → InProgress
+- `.agent_stopped` marker in task dir — created by `Stop` hook (Claude), `AfterAgent` hook (Gemini), or notify script (Codex) when agent finishes responding; triggers InProgress → ActionRequired
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
 - `ma-task` CLI (bash script in `~/.my-agents/bin/`) lets agents manage tasks via JSON commands
 - `ma-codex-notify` script (bash in `~/.my-agents/bin/`) handles Codex `notify` events for automatic status tracking
-- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex
+- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex, `.gemini/skills/` for Gemini CLI

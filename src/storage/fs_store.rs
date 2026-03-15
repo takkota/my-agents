@@ -526,14 +526,26 @@ impl FsStore {
             Self::copy_skills_dir(&project_agents_skills, &task_agents_skills)?;
         }
 
+        // Gemini CLI skills: .gemini/skills/
+        let project_gemini_skills = project_dir.join(".gemini").join("skills");
+        if project_gemini_skills.is_dir() {
+            let task_gemini_skills = task_dir.join(".gemini").join("skills");
+            fs::create_dir_all(&task_gemini_skills)?;
+            Self::copy_skills_dir(&project_gemini_skills, &task_gemini_skills)?;
+        }
+
         Ok(())
     }
 
     /// Copy skill subdirectories from `src` into `dst`.
     /// Each child directory in `src` is symlinked into `dst` unless a
     /// directory with the same name already exists (e.g. task-management).
+    /// PM-only skills (e.g. `pm-manager`) are excluded to prevent them from
+    /// leaking into regular task sessions.
     /// Errors on individual entries are logged and skipped rather than
     /// aborting the entire operation.
+    const PM_ONLY_SKILLS: &[&str] = &["pm-manager"];
+
     fn copy_skills_dir(src: &std::path::Path, dst: &std::path::Path) -> AppResult<()> {
         for entry in fs::read_dir(src)? {
             let entry = match entry {
@@ -541,6 +553,13 @@ impl FsStore {
                 Err(_) => continue,
             };
             let name = entry.file_name();
+
+            // Skip PM-only skills to prevent them from appearing in regular tasks.
+            if let Some(name_str) = name.to_str() {
+                if Self::PM_ONLY_SKILLS.contains(&name_str) {
+                    continue;
+                }
+            }
             let dest = dst.join(&name);
 
             // Skip if the task already has this skill (e.g. built-in task-management).
