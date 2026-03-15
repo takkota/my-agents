@@ -86,6 +86,9 @@ pub struct App {
 
     // Pane focus
     pub focus: FocusPane,
+
+    // Track selected item to detect changes
+    last_selected_id: Option<String>,
 }
 
 /// Result from a background task setup (worktree + tmux + config).
@@ -160,6 +163,7 @@ impl App {
             needs_full_redraw: false,
             error_message: None,
             focus: FocusPane::TaskTree,
+            last_selected_id: None,
         };
 
         app.reload_data()?;
@@ -429,6 +433,9 @@ impl App {
                 }
             }
             KeyCode::Char('w') => return Ok(Some(Action::CycleFocus)),
+            KeyCode::Char('G') if self.focus == FocusPane::SessionPanel => {
+                return Ok(Some(Action::ScrollToBottom));
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 return Ok(Some(match self.focus {
                     FocusPane::TaskTree => Action::MoveUp,
@@ -461,9 +468,24 @@ impl App {
                 self.task_tree.move_down();
             }
             Action::CycleFocus => {
+                let (info_visible, session_visible) = self.preview_panel.visible_panes();
                 self.focus = match self.focus {
-                    FocusPane::TaskTree => FocusPane::InfoPanel,
-                    FocusPane::InfoPanel => FocusPane::SessionPanel,
+                    FocusPane::TaskTree => {
+                        if info_visible {
+                            FocusPane::InfoPanel
+                        } else if session_visible {
+                            FocusPane::SessionPanel
+                        } else {
+                            FocusPane::TaskTree
+                        }
+                    }
+                    FocusPane::InfoPanel => {
+                        if session_visible {
+                            FocusPane::SessionPanel
+                        } else {
+                            FocusPane::TaskTree
+                        }
+                    }
                     FocusPane::SessionPanel => FocusPane::TaskTree,
                 };
             }
@@ -480,6 +502,9 @@ impl App {
                     FocusPane::SessionPanel => self.preview_panel.scroll_session_down(),
                     _ => {}
                 }
+            }
+            Action::ScrollToBottom => {
+                self.preview_panel.scroll_session_to_bottom();
             }
             Action::AttachSession => {
                 if let Some(name) = self.resolve_attach_session() {
@@ -1670,6 +1695,16 @@ impl App {
 
     fn refresh_preview_task_info(&mut self) {
         let selected = self.task_tree.selected_item();
+
+        // Detect selection change and reset scroll
+        let current_id = selected.map(|item| match item {
+            TreeItem::Task { id, .. } => id.clone(),
+            TreeItem::Project { id, .. } => id.clone(),
+        });
+        if current_id != self.last_selected_id {
+            self.last_selected_id = current_id;
+            self.preview_panel.reset_scroll();
+        }
 
         match selected {
             Some(TreeItem::Task { id, project_id, .. }) => {

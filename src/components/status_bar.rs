@@ -58,6 +58,12 @@ impl StatusBar {
                 Span::styled(" Scroll ", desc_style),
             ]);
         }
+        if focus == FocusPane::SessionPanel {
+            spans.extend([
+                Span::styled("G", key_style),
+                Span::styled(" Bottom ", desc_style),
+            ]);
+        }
 
         // Common keys (always available)
         spans.extend([

@@ -129,6 +129,7 @@ pub enum Action {
     CycleFocus,
     ScrollUp,
     ScrollDown,
+    ScrollToBottom,
 
     // System
     Tick,

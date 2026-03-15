@@ -36,6 +36,8 @@ pub struct PreviewPanel {
     project_info: Option<ProjectInfo>,
     info_scroll: u16,
     session_scroll: Option<u16>,
+    /// Cached max scroll offset for session panel (updated each render)
+    session_max_scroll: u16,
 }
 
 impl PreviewPanel {
@@ -50,6 +52,7 @@ impl PreviewPanel {
             project_info: None,
             info_scroll: 0,
             session_scroll: None,
+            session_max_scroll: 0,
         }
     }
 
@@ -59,8 +62,6 @@ impl PreviewPanel {
         self.task_notes = notes;
         self.task_initial_instructions = initial_instructions;
         self.project_info = None;
-        self.info_scroll = 0;
-        self.session_scroll = None;
     }
 
     pub fn clear_task_info(&mut self) {
@@ -69,8 +70,6 @@ impl PreviewPanel {
         self.task_notes = None;
         self.task_initial_instructions = None;
         self.project_info = None;
-        self.info_scroll = 0;
-        self.session_scroll = None;
     }
 
     pub fn update_project_info(&mut self, info: ProjectInfo) {
@@ -79,6 +78,21 @@ impl PreviewPanel {
         self.task_links = Vec::new();
         self.task_notes = None;
         self.task_initial_instructions = None;
+    }
+
+    /// Returns which right-side panes are currently visible
+    pub fn visible_panes(&self) -> (bool, bool) {
+        let info_visible = self.project_info.is_some() || self.has_task_info();
+        let session_visible = if self.project_info.is_some() {
+            self.current_session.is_some()
+        } else {
+            true // session/preview pane is always shown for tasks
+        };
+        (info_visible, session_visible)
+    }
+
+    /// Reset scroll positions (call when selected item changes)
+    pub fn reset_scroll(&mut self) {
         self.info_scroll = 0;
         self.session_scroll = None;
     }
@@ -92,12 +106,25 @@ impl PreviewPanel {
     }
 
     pub fn scroll_session_up(&mut self) {
-        // Switch from auto-scroll (None) to manual scroll
-        self.session_scroll = Some(self.session_scroll.unwrap_or(0).saturating_sub(1));
+        // Switch from auto-scroll (None) to manual scroll starting near bottom
+        let current = self.session_scroll.unwrap_or(self.session_max_scroll);
+        self.session_scroll = Some(current.saturating_sub(1));
     }
 
     pub fn scroll_session_down(&mut self) {
-        self.session_scroll = Some(self.session_scroll.unwrap_or(0).saturating_add(1));
+        let current = self.session_scroll.unwrap_or(self.session_max_scroll);
+        let new_offset = current.saturating_add(1);
+        if new_offset >= self.session_max_scroll {
+            // Reached bottom, switch back to auto-scroll (fixes 指摘3)
+            self.session_scroll = None;
+        } else {
+            self.session_scroll = Some(new_offset);
+        }
+    }
+
+    /// Return to auto-scroll (bottom-following) mode
+    pub fn scroll_session_to_bottom(&mut self) {
+        self.session_scroll = None;
     }
 
     pub fn update_preview(&mut self, session_name: Option<&str>, tmux: &TmuxService) {
@@ -243,14 +270,24 @@ impl PreviewPanel {
                     .border_style(Style::default().fg(border_color)),
             )
             .wrap(Wrap { trim: false })
-            .scroll((self.info_scroll, 0))
     }
 
-    fn render_task_info(&self, frame: &mut Frame, area: Rect, focused: bool) {
-        frame.render_widget(self.build_task_info_paragraph(focused), area);
+    fn render_task_info(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
+        // Compute max scroll first, then clamp
+        {
+            let paragraph = self.build_task_info_paragraph(focused);
+            let inner_height = Block::default().borders(Borders::ALL).inner(area).height as usize;
+            let total_lines = paragraph.line_count(area.width);
+            let max_scroll = total_lines.saturating_sub(inner_height) as u16;
+            self.info_scroll = self.info_scroll.min(max_scroll);
+        }
+        // Now build again with clamped scroll applied
+        let paragraph = self.build_task_info_paragraph(focused)
+            .scroll((self.info_scroll, 0));
+        frame.render_widget(paragraph, area);
     }
 
-    fn render_project_info(&self, frame: &mut Frame, area: Rect, focused: bool) {
+    fn render_project_info(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let info = match &self.project_info {
             Some(info) => info,
             None => return,
@@ -365,13 +402,18 @@ impl PreviewPanel {
                     .title(format!(" Project: {} ", info.name))
                     .border_style(Style::default().fg(border_color)),
             )
-            .wrap(Wrap { trim: false })
-            .scroll((self.info_scroll, 0));
+            .wrap(Wrap { trim: false });
+
+        let inner_height = Block::default().borders(Borders::ALL).inner(area).height as usize;
+        let total_lines = paragraph.line_count(area.width);
+        let max_scroll = total_lines.saturating_sub(inner_height) as u16;
+        self.info_scroll = self.info_scroll.min(max_scroll);
+        let paragraph = paragraph.scroll((self.info_scroll, 0));
 
         frame.render_widget(paragraph, area);
     }
 
-    fn render_session(&self, frame: &mut Frame, area: Rect, focused: bool) {
+    fn render_session(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let title = match &self.current_session {
             Some(name) => format!(" Session: {} ", name),
             None => " Preview ".to_string(),
@@ -390,6 +432,7 @@ impl PreviewPanel {
         let inner_height = block.inner(area).height as usize;
         let total_lines = paragraph.line_count(area.width);
         let max_scroll = total_lines.saturating_sub(inner_height) as u16;
+        self.session_max_scroll = max_scroll;
 
         let scroll_offset = match self.session_scroll {
             // Manual scroll mode: clamp to max
@@ -402,7 +445,7 @@ impl PreviewPanel {
         frame.render_widget(paragraph, area);
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect, info_focused: bool, session_focused: bool) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, info_focused: bool, session_focused: bool) {
         if self.project_info.is_some() {
             // If PM session is active, split between project info and session content
             if self.current_session.is_some() {
