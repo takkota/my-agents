@@ -693,6 +693,91 @@ cmd_delete() {
     fi
 }
 
+cmd_prompt() {
+    local task_id="" text=""
+    local from_stdin=false
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --stdin) from_stdin=true; shift ;;
+            -*)  die "unknown option: $1" ;;
+            *)
+                if [ -z "$task_id" ]; then
+                    task_id="$1"
+                elif [ -z "$text" ]; then
+                    text="$1"
+                else
+                    die "unexpected argument: $1"
+                fi
+                shift ;;
+        esac
+    done
+
+    [ -n "$task_id" ] || die "usage: ma-task prompt <task-id> <text>  or  ma-task prompt <task-id> --stdin"
+
+    # Read prompt text from stdin if requested
+    if [ "$from_stdin" = true ]; then
+        text="$(cat)"
+    fi
+
+    [ -n "$text" ] || die "prompt text is required (pass as argument or use --stdin)"
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    # Get agent CLI and tmux session
+    local agent_cli tmux_session
+    agent_cli="$(echo "$json" | jq -r '.agent_cli')"
+    tmux_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+
+    [ -n "$tmux_session" ] || die "task has no tmux session (not running)"
+
+    # Check session actually exists
+    if ! tmux has-session -t "$tmux_session" 2>/dev/null; then
+        die "tmux session '${tmux_session}' does not exist"
+    fi
+
+    # Send prompt using agent-appropriate method
+    case "$agent_cli" in
+        Codex)
+            # Codex needs bracketed paste to avoid leaving text in composer
+            local buf_name="ma-$(date +%s%N)"
+            tmux set-buffer -b "$buf_name" -- "$text" \
+                || die "failed to stage tmux paste buffer"
+            tmux paste-buffer -d -p -b "$buf_name" -t "$tmux_session" \
+                || { tmux delete-buffer -b "$buf_name" 2>/dev/null; die "failed to paste text into tmux session"; }
+            sleep 0.05
+            tmux send-keys -t "$tmux_session" Enter \
+                || die "failed to submit prompt"
+            ;;
+        *)
+            # Claude, Gemini, None: simple send-keys
+            tmux send-keys -t "$tmux_session" "$text" Enter \
+                || die "failed to send prompt to tmux session"
+            ;;
+    esac
+
+    echo '{"ok": true}'
+}
+
 cmd_help() {
     cat <<'HELP'
 ma-task: Task management CLI for my-agents
@@ -710,6 +795,7 @@ Commands:
   link <task-id> <url> [--name n]  Add a link to task
   preview-url <id> <url> --name n Register a preview URL for task
   run <task-id>                    Set up worktree, tmux, and launch agent for existing task
+  prompt <task-id> <text>          Send a prompt to a running task's agent session
   delete <task-id>                 Delete task and clean up resources
   help                             Show this help
 
@@ -729,6 +815,9 @@ Update options:
   --notes <text>        New notes
   --prompt <text>       Update initial instructions
   --agent <cli>         Agent CLI: Claude, Codex, Gemini, None
+
+Prompt options:
+  --stdin               Read prompt text from stdin (for multiline input)
 
 Status values:
   Todo, InProgress, ActionRequired, Completed, Blocked
@@ -751,6 +840,7 @@ case "$cmd" in
     link)        cmd_link "$@" ;;
     preview-url) cmd_preview_url "$@" ;;
     run)         cmd_run "$@" ;;
+    prompt)      cmd_prompt "$@" ;;
     delete)   cmd_delete "$@" ;;
     help|--help|-h) cmd_help ;;
     *) die "unknown command: $cmd (run 'ma-task help')" ;;
