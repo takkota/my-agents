@@ -938,6 +938,17 @@ ma-task delete <task-id>
 
 Deletes a task and cleans up its worktrees and tmux session.
 
+### Get a progress summary of another task
+
+```bash
+ma-task summary <task-id>
+ma-task summary <task-id> --prompt "What PRs have been created?"
+```
+
+Gets an AI-generated progress summary of a task without affecting its running session.
+For Claude tasks, this forks the conversation (via `--continue --print`).
+For other agents, it captures the tmux scrollback and summarizes it.
+
 ### List all projects
 
 ```bash

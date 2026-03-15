@@ -815,6 +815,122 @@ cmd_prompt() {
     echo '{"ok": true}'
 }
 
+cmd_summary() {
+    local task_id=""
+    local custom_prompt=""
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --prompt|-m) custom_prompt="${2:?--prompt requires value}"; shift 2 ;;
+            -*) die "unknown option: $1" ;;
+            *)
+                if [ -z "$task_id" ]; then
+                    task_id="$1"
+                else
+                    die "unexpected argument: $1"
+                fi
+                shift ;;
+        esac
+    done
+
+    [ -n "$task_id" ] || die "usage: ma-task summary <task-id> [--prompt <text>]"
+
+    # Resolve task
+    local project_id=""
+    if ctx="$(detect_context 2>/dev/null)"; then
+        project_id="${ctx%%/*}"
+        if [ ! -f "$(task_json_path "$project_id" "$task_id")" ]; then
+            local found
+            found="$(find_task "$task_id")"
+            project_id="${found%%/*}"
+            task_id="${found#*/}"
+        fi
+    else
+        local found
+        found="$(find_task "$task_id")"
+        project_id="${found%%/*}"
+        task_id="${found#*/}"
+    fi
+
+    local json
+    json="$(read_task "$project_id" "$task_id")"
+
+    local agent_cli tmux_session task_name task_status
+    agent_cli="$(echo "$json" | jq -r '.agent_cli')"
+    tmux_session="$(echo "$json" | jq -r '.tmux_session // empty')"
+    task_name="$(echo "$json" | jq -r '.name')"
+    task_status="$(echo "$json" | jq -r '.status')"
+
+    [ -n "$tmux_session" ] || die "task has no tmux session (not running)"
+
+    if ! tmux has-session -t "$tmux_session" 2>/dev/null; then
+        die "tmux session '${tmux_session}' does not exist"
+    fi
+
+    local default_prompt="Provide a concise progress summary for this task. Include: (1) what has been accomplished so far, (2) current status and what is happening now, (3) any remaining work or blockers. Be specific about files changed, PRs created, tests passed/failed, etc."
+    local prompt="${custom_prompt:-$default_prompt}"
+
+    # Get first worktree path
+    local worktree_dir=""
+    worktree_dir="$(echo "$json" | jq -r '.worktrees[0].worktree_path // empty')"
+
+    case "$agent_cli" in
+        Claude)
+            # Try conversation fork via --continue --print from task's worktree.
+            # This forks the agent's conversation: the running interactive session
+            # is unaffected because it holds its state in memory. --print mode runs
+            # non-interactively and outputs the summary to stdout.
+            if [ -n "$worktree_dir" ] && [ -d "$worktree_dir" ]; then
+                if (cd "$worktree_dir" && claude --continue --print "$prompt" 2>/dev/null); then
+                    return 0
+                fi
+            fi
+            # Fallback: capture tmux pane content and summarize
+            _summary_via_capture "$tmux_session" "$prompt" "$task_name" "$task_status"
+            ;;
+        *)
+            # For non-Claude agents, capture tmux pane content and summarize
+            _summary_via_capture "$tmux_session" "$prompt" "$task_name" "$task_status"
+            ;;
+    esac
+}
+
+# Capture the full tmux scrollback buffer and summarize it using claude --print.
+# This approach is completely isolated from the running agent session.
+_summary_via_capture() {
+    local session="$1" prompt="$2" task_name="$3" task_status="$4"
+
+    need_cmd claude
+
+    local captured
+    captured="$(tmux capture-pane -S - -p -t "$session" 2>/dev/null)" || true
+
+    if [ -z "$captured" ]; then
+        die "could not capture session content"
+    fi
+
+    # Truncate to last ~50000 chars to stay within context limits
+    if [ ${#captured} -gt 50000 ]; then
+        captured="$(echo "$captured" | tail -c 50000)"
+    fi
+
+    local full_prompt
+    full_prompt="$(cat <<EOF
+Task: ${task_name}
+Status: ${task_status}
+
+${prompt}
+
+--- Terminal session output below ---
+${captured}
+EOF
+)"
+
+    echo "$full_prompt" | claude --print 2>/dev/null \
+        || die "failed to run claude --print for summarization"
+}
+
 cmd_help() {
     cat <<'HELP'
 ma-task: Task management CLI for my-agents
@@ -833,6 +949,7 @@ Commands:
   preview-url <id> <url> --name n Register a preview URL for task
   run <task-id>                    Set up worktree, tmux, and launch agent for existing task
   prompt <task-id> <text>          Send a prompt to a running task's agent session
+  summary <task-id> [--prompt t]   Get AI-generated progress summary of task
   delete <task-id>                 Delete task and clean up resources
   help                             Show this help
 
@@ -856,6 +973,9 @@ Update options:
 Prompt options:
   --stdin               Read prompt text from stdin (for multiline input)
 
+Summary options:
+  --prompt, -m <text>   Custom prompt for the summary (default: general progress report)
+
 Status values:
   Todo, InProgress, ActionRequired, Completed, Blocked
 HELP
@@ -878,6 +998,7 @@ case "$cmd" in
     preview-url) cmd_preview_url "$@" ;;
     run)         cmd_run "$@" ;;
     prompt)      cmd_prompt "$@" ;;
+    summary)     cmd_summary "$@" ;;
     delete)   cmd_delete "$@" ;;
     help|--help|-h) cmd_help ;;
     *) die "unknown command: $cmd (run 'ma-task help')" ;;
