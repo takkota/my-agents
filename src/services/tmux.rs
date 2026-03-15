@@ -170,6 +170,59 @@ impl TmuxService {
         Ok(())
     }
 
+    /// Launch an agent with `resume_command()` to continue the previous conversation.
+    /// For CLIs that support inline prompts (Claude, Gemini), the prompt is embedded
+    /// in the command. For Codex (`resume --last`), the agent is launched first and
+    /// the prompt is sent separately after a delay. A guard file is used to prevent
+    /// stale threads from sending prompts into a re-created session.
+    pub fn launch_agent_resume(
+        &self,
+        session: &str,
+        cli: &AgentCli,
+        prompt: &str,
+        guard_file: Option<&Path>,
+    ) -> AppResult<()> {
+        if let Some(cmd) = cli.resume_command() {
+            match cli {
+                // Codex `resume --last` doesn't accept inline prompts
+                AgentCli::Codex => {
+                    Self::tmux_cmd()
+                        .args(["send-keys", "-t", session, &cmd, "Enter"])
+                        .output()?;
+                    // Send prompt after agent startup, guarded by file existence
+                    let session_owned = session.to_string();
+                    let prompt_owned = prompt.to_string();
+                    let guard = guard_file.map(|p| p.to_path_buf());
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        // If guard file was removed (session killed & re-triggered), abort
+                        if let Some(ref g) = guard {
+                            if !g.exists() {
+                                return;
+                            }
+                        }
+                        let tmux = TmuxService::new();
+                        let _ = tmux.send_prompt(&session_owned, AgentCli::Codex, &prompt_owned);
+                    });
+                }
+                // Claude and Gemini accept inline prompts.
+                // Escape all shell-special characters inside double quotes.
+                _ => {
+                    let escaped = prompt
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .replace('`', "\\`")
+                        .replace('$', "\\$");
+                    let full_cmd = format!("{} \"{}\"", cmd, escaped);
+                    Self::tmux_cmd()
+                        .args(["send-keys", "-t", session, &full_cmd, "Enter"])
+                        .output()?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn send_prompt(&self, session: &str, cli: AgentCli, text: &str) -> AppResult<()> {
         match cli {
             // Codex treats rapid `send-keys ... Enter` input as a paste burst and may leave the
@@ -242,6 +295,10 @@ impl TmuxService {
 
     pub fn session_name(project_id: &str, task_id: &str) -> String {
         format!("ma-{}-{}", project_id, &task_id[..task_id.len().min(6)])
+    }
+
+    pub fn pm_session_name(project_id: &str) -> String {
+        format!("ma-pm-{}", project_id)
     }
 
     pub fn list_sessions(&self) -> AppResult<Vec<String>> {

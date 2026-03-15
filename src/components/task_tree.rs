@@ -1,5 +1,6 @@
 use crate::domain::project::Project;
 use crate::domain::task::{Status, Task};
+use crate::services::tmux::TmuxService;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -13,6 +14,7 @@ pub enum TreeItem {
         id: String,
         name: String,
         task_count: usize,
+        pm_active: bool,
     },
     Task {
         id: String,
@@ -96,10 +98,14 @@ impl TaskTree {
                 })
                 .collect();
 
+            let pm_session = TmuxService::pm_session_name(&project.id);
+            let pm_active = active_sessions.contains(&pm_session);
+
             self.items.push(TreeItem::Project {
                 id: project.id.clone(),
                 name: project.name.clone(),
                 task_count: filtered_tasks.len(),
+                pm_active,
             });
 
             if self.expanded.contains(&project.id) {
@@ -216,14 +222,14 @@ impl TaskTree {
             .iter()
             .map(|item| match item {
                 TreeItem::Project {
-                    name, task_count, id, ..
+                    name, task_count, id, pm_active, ..
                 } => {
                     let arrow = if self.expanded.contains(id) {
                         "▼"
                     } else {
                         "▶"
                     };
-                    let line = Line::from(vec![
+                    let mut spans = vec![
                         Span::styled(
                             format!(" {} ", arrow),
                             Style::default().fg(Color::Yellow),
@@ -238,7 +244,14 @@ impl TaskTree {
                             format!("({})", task_count),
                             Style::default().fg(Color::DarkGray),
                         ),
-                    ]);
+                    ];
+                    if *pm_active {
+                        spans.push(Span::styled(
+                            " [PM]",
+                            Style::default().fg(Color::Green),
+                        ));
+                    }
+                    let line = Line::from(spans);
                     ListItem::new(line)
                 }
                 TreeItem::Task {
