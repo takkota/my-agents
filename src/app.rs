@@ -83,6 +83,12 @@ pub struct App {
 
     // Error display
     pub error_message: Option<String>,
+
+    // Pane focus
+    pub focus: FocusPane,
+
+    // Track selected item to detect changes
+    last_selected_id: Option<String>,
 }
 
 /// Result from a background task setup (worktree + tmux + config).
@@ -92,6 +98,13 @@ struct TaskSetupResult {
     worktrees: Vec<crate::domain::task::WorktreeInfo>,
     tmux_session: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusPane {
+    TaskTree,
+    InfoPanel,
+    SessionPanel,
 }
 
 pub enum ModalKind {
@@ -149,6 +162,8 @@ impl App {
             last_data_fingerprint: (0, 0),
             needs_full_redraw: false,
             error_message: None,
+            focus: FocusPane::TaskTree,
+            last_selected_id: None,
         };
 
         app.reload_data()?;
@@ -417,8 +432,22 @@ impl App {
                     return Ok(Some(Action::StartPmSession { project_id }));
                 }
             }
-            KeyCode::Up | KeyCode::Char('k') => return Ok(Some(Action::MoveUp)),
-            KeyCode::Down | KeyCode::Char('j') => return Ok(Some(Action::MoveDown)),
+            KeyCode::Char('w') => return Ok(Some(Action::CycleFocus)),
+            KeyCode::Char('G') if self.focus == FocusPane::SessionPanel => {
+                return Ok(Some(Action::ScrollToBottom));
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                return Ok(Some(match self.focus {
+                    FocusPane::TaskTree => Action::MoveUp,
+                    FocusPane::InfoPanel | FocusPane::SessionPanel => Action::ScrollUp,
+                }));
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                return Ok(Some(match self.focus {
+                    FocusPane::TaskTree => Action::MoveDown,
+                    FocusPane::InfoPanel | FocusPane::SessionPanel => Action::ScrollDown,
+                }));
+            }
             KeyCode::Enter => return Ok(Some(Action::AttachSession)),
             _ => {}
         }
@@ -437,6 +466,45 @@ impl App {
             }
             Action::MoveDown => {
                 self.task_tree.move_down();
+            }
+            Action::CycleFocus => {
+                let (info_visible, session_visible) = self.preview_panel.visible_panes();
+                self.focus = match self.focus {
+                    FocusPane::TaskTree => {
+                        if info_visible {
+                            FocusPane::InfoPanel
+                        } else if session_visible {
+                            FocusPane::SessionPanel
+                        } else {
+                            FocusPane::TaskTree
+                        }
+                    }
+                    FocusPane::InfoPanel => {
+                        if session_visible {
+                            FocusPane::SessionPanel
+                        } else {
+                            FocusPane::TaskTree
+                        }
+                    }
+                    FocusPane::SessionPanel => FocusPane::TaskTree,
+                };
+            }
+            Action::ScrollUp => {
+                match self.focus {
+                    FocusPane::InfoPanel => self.preview_panel.scroll_info_up(),
+                    FocusPane::SessionPanel => self.preview_panel.scroll_session_up(),
+                    _ => {}
+                }
+            }
+            Action::ScrollDown => {
+                match self.focus {
+                    FocusPane::InfoPanel => self.preview_panel.scroll_info_down(),
+                    FocusPane::SessionPanel => self.preview_panel.scroll_session_down(),
+                    _ => {}
+                }
+            }
+            Action::ScrollToBottom => {
+                self.preview_panel.scroll_session_to_bottom();
             }
             Action::AttachSession => {
                 if let Some(name) = self.resolve_attach_session() {
@@ -1628,6 +1696,16 @@ impl App {
     fn refresh_preview_task_info(&mut self) {
         let selected = self.task_tree.selected_item();
 
+        // Detect selection change and reset scroll
+        let current_id = selected.map(|item| match item {
+            TreeItem::Task { id, .. } => id.clone(),
+            TreeItem::Project { id, .. } => id.clone(),
+        });
+        if current_id != self.last_selected_id {
+            self.last_selected_id = current_id;
+            self.preview_panel.reset_scroll();
+        }
+
         match selected {
             Some(TreeItem::Task { id, project_id, .. }) => {
                 let task = self
@@ -1703,10 +1781,16 @@ impl App {
                 .split(main_chunks[0]);
 
         // Left panel: task tree
-        self.task_tree.render(frame, content_chunks[0]);
+        self.task_tree
+            .render(frame, content_chunks[0], self.focus == FocusPane::TaskTree);
 
         // Right panel: preview
-        self.preview_panel.render(frame, content_chunks[1]);
+        self.preview_panel.render(
+            frame,
+            content_chunks[1],
+            self.focus == FocusPane::InfoPanel,
+            self.focus == FocusPane::SessionPanel,
+        );
 
         // Status bar
         if self.active_modal.is_some() {
@@ -1717,7 +1801,7 @@ impl App {
                 Some(TreeItem::Task { .. }) => SelectionContext::Task,
                 None => SelectionContext::None,
             };
-            StatusBar::render_main(frame, main_chunks[1], self.error_message.as_deref(), context);
+            StatusBar::render_main(frame, main_chunks[1], self.error_message.as_deref(), context, self.focus);
         }
 
         // Modal overlay

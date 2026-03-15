@@ -125,6 +125,12 @@ pub enum Action {
         index: usize,
     },
 
+    // Focus & scroll
+    CycleFocus,
+    ScrollUp,
+    ScrollDown,
+    ScrollToBottom,
+
     // System
     Tick,
     Quit,
