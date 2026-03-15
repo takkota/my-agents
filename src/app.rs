@@ -1564,23 +1564,6 @@ impl App {
             }
             Some(TreeItem::Project { id, name, .. }) => {
                 let project = self.projects.iter().find(|p| p.id == *id);
-                let tasks = self.tasks_by_project.get(id.as_str());
-
-                let mut stats = crate::components::preview_panel::TaskStats::default();
-                if let Some(tasks) = tasks {
-                    stats.total = tasks.len();
-                    for t in tasks {
-                        match t.status {
-                            crate::domain::task::Status::Todo => stats.todo += 1,
-                            crate::domain::task::Status::InProgress => stats.in_progress += 1,
-                            crate::domain::task::Status::ActionRequired => {
-                                stats.action_required += 1
-                            }
-                            crate::domain::task::Status::Completed => stats.completed += 1,
-                            crate::domain::task::Status::Blocked => stats.blocked += 1,
-                        }
-                    }
-                }
 
                 let repos = project
                     .map(|p| {
@@ -1613,7 +1596,6 @@ impl App {
                         project_dir,
                         repos,
                         worktree_copy_files,
-                        task_stats: stats,
                         pm_enabled,
                         pm_agent_cli,
                         pm_cron_expression,
