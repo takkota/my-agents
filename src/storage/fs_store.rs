@@ -1142,6 +1142,10 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
         self.project_dir(project_id).join("pm")
     }
 
+    pub fn pm_output_file(&self, project_id: &str) -> PathBuf {
+        self.pm_dir(project_id).join("output.md")
+    }
+
     pub fn write_pm_config_files(&self, project: &Project) -> AppResult<()> {
         let project_dir = self.project_dir(&project.id);
         fs::create_dir_all(&project_dir)?;

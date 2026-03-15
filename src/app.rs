@@ -1075,40 +1075,33 @@ impl App {
                 // Update preview with task info
                 self.refresh_preview_task_info();
 
-                let session_name = self.task_tree.selected_item().and_then(|item| {
-                    match item {
-                        TreeItem::Task { id, project_id, .. } => {
-                            self.tasks_by_project
-                                .get(project_id.as_str())
-                                .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
-                                .and_then(|t| t.tmux_session.as_deref())
-                        }
-                        TreeItem::Project { id, .. } => {
-                            let pm_session = TmuxService::pm_session_name(id);
-                            if self.active_sessions.contains(&pm_session) {
-                                // Return a reference-compatible value
-                                None // handled below
-                            } else {
-                                None
+                // For PM projects, show file-based preview; for tasks, show tmux pane
+                let mut used_file_preview = false;
+                if let Some(TreeItem::Project { id, .. }) = self.task_tree.selected_item() {
+                    let output_file = self.store.pm_output_file(id);
+                    if output_file.exists() {
+                        self.preview_panel
+                            .update_preview_from_file(&output_file, id);
+                        used_file_preview = true;
+                    }
+                }
+
+                if !used_file_preview {
+                    let session_name = self.task_tree.selected_item().and_then(|item| {
+                        match item {
+                            TreeItem::Task { id, project_id, .. } => {
+                                self.tasks_by_project
+                                    .get(project_id.as_str())
+                                    .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
+                                    .and_then(|t| t.tmux_session.as_deref())
                             }
+                            TreeItem::Project { .. } => None,
                         }
-                    }
-                });
-                // For project with PM session, show PM session content
-                let session_name_owned = if session_name.is_some() {
-                    session_name.map(|s| s.to_string())
-                } else if let Some(TreeItem::Project { id, .. }) = self.task_tree.selected_item() {
-                    let pm_session = TmuxService::pm_session_name(id);
-                    if self.active_sessions.contains(&pm_session) {
-                        Some(pm_session)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                self.preview_panel
-                    .update_preview(session_name_owned.as_deref(), &self.tmux);
+                    });
+                    let session_name_owned = session_name.map(|s| s.to_string());
+                    self.preview_panel
+                        .update_preview(session_name_owned.as_deref(), &self.tmux);
+                }
 
                 // Filesystem change detection: check every 3 seconds for external changes
                 // (e.g. tasks created via `ma-task` CLI)
@@ -1270,11 +1263,20 @@ impl App {
         let pm_state_dir = self.store.pm_dir(project_id);
         std::fs::create_dir_all(&pm_state_dir)?;
 
+        let output_file = self.store.pm_output_file(project_id);
+
+        // If agent is currently running interactively (from an attach), kill it first
+        if self.tmux.session_exists(&pm_session)
+            && self.tmux.is_agent_running_in_session(&pm_session)
+        {
+            let _ = self.tmux.kill_foreground_process(&pm_session);
+        }
+
         // Remove guard file to cancel any pending Codex prompt thread
         let guard_file = pm_state_dir.join(".pm_prompt_guard");
         let _ = std::fs::remove_file(&guard_file);
 
-        // Kill existing PM session (fresh start each trigger for config reload)
+        // Kill existing PM session and recreate (fresh start for config reload)
         if self.tmux.session_exists(&pm_session) {
             let _ = self.tmux.kill_session(&pm_session);
         }
@@ -1293,20 +1295,24 @@ impl App {
         };
 
         let history_marker = pm_state_dir.join(".has_history");
-        // Create guard file for Codex deferred-prompt thread safety
-        let _ = std::fs::write(&guard_file, "");
         // Gemini CLI cannot resume sessions after tmux kill (session data not saved on SIGTERM),
         // so always launch fresh. Claude/Codex handle resume gracefully.
         let can_resume = history_marker.exists() && agent_cli != AgentCli::Gemini;
-        if can_resume {
-            // Resume previous conversation to preserve context
-            self.tmux.launch_agent_resume(&pm_session, &agent_cli, trigger_prompt, Some(&guard_file))?;
-        } else {
-            // First run (or Gemini): launch fresh with prompt file
-            let prompt_file = pm_state_dir.join(".initial_prompt");
-            std::fs::write(&prompt_file, trigger_prompt)?;
-            self.tmux.launch_agent(&pm_session, &agent_cli, Some(&prompt_file))?;
-            // Mark that a session has been started for future resumes (used by Claude/Codex)
+
+        // Clear output file before starting
+        let _ = std::fs::write(&output_file, "");
+
+        // Launch agent non-interactively with output to file
+        self.tmux.launch_agent_non_interactive(
+            &pm_session,
+            &agent_cli,
+            trigger_prompt,
+            &output_file,
+            can_resume,
+        )?;
+
+        if !history_marker.exists() {
+            // Mark that a session has been started for future resumes
             let _ = std::fs::write(&history_marker, "");
         }
 
@@ -1422,13 +1428,91 @@ impl App {
 
         match item {
             TreeItem::Project { id, .. } => {
-                // If PM session exists, attach to it
+                let project = self.projects.iter().find(|p| p.id == id).cloned();
+                let project = match project {
+                    Some(p) if p.pm_enabled => p,
+                    _ => return None, // No PM — use 'o' to toggle expand instead
+                };
+                let agent_cli = project.pm_agent_cli.unwrap_or(AgentCli::Claude);
+                if agent_cli == AgentCli::None {
+                    return None;
+                }
+
                 let pm_session = TmuxService::pm_session_name(&id);
+                let project_dir = self.store.project_dir(&id);
+
                 if self.tmux.session_exists(&pm_session) {
+                    // If a non-interactive agent is running, kill it before interactive attach
+                    if self.tmux.is_agent_running_in_session(&pm_session) {
+                        let _ = self.tmux.kill_foreground_process(&pm_session);
+                    }
+                    // Launch agent interactively with resume if not already running
+                    if !self.tmux.is_agent_running_in_session(&pm_session) {
+                        let pm_state_dir = self.store.pm_dir(&id);
+                        let history_marker = pm_state_dir.join(".has_history");
+                        let guard_file = pm_state_dir.join(".pm_prompt_guard");
+                        let can_resume = history_marker.exists() && agent_cli != AgentCli::Gemini;
+                        if can_resume {
+                            let _ = self.tmux.launch_agent_resume(
+                                &pm_session,
+                                &agent_cli,
+                                "",
+                                Some(&guard_file),
+                            );
+                        } else {
+                            let _ = self.tmux.launch_agent(
+                                &pm_session,
+                                &agent_cli,
+                                None,
+                            );
+                        }
+                    }
                     return Some(pm_session);
                 }
-                // No PM session — use 'o' to toggle expand instead
-                None
+
+                // No PM session — create one and launch agent interactively
+                if !TmuxService::is_available() {
+                    return None;
+                }
+                // Write PM config files
+                let _ = self.store.write_pm_config_files(&project);
+                match self.tmux.create_session(&pm_session, &project_dir) {
+                    Ok(()) => {
+                        let pm_state_dir = self.store.pm_dir(&id);
+                        let _ = std::fs::create_dir_all(&pm_state_dir);
+                        let history_marker = pm_state_dir.join(".has_history");
+                        let guard_file = pm_state_dir.join(".pm_prompt_guard");
+                        let can_resume = history_marker.exists() && agent_cli != AgentCli::Gemini;
+                        if can_resume {
+                            let _ = self.tmux.launch_agent_resume(
+                                &pm_session,
+                                &agent_cli,
+                                "",
+                                Some(&guard_file),
+                            );
+                        } else {
+                            let _ = self.tmux.launch_agent(
+                                &pm_session,
+                                &agent_cli,
+                                None,
+                            );
+                        }
+                        // Save PM session name
+                        if let Some(proj) = self.projects.iter().find(|p| p.id == id).cloned() {
+                            let mut updated = proj;
+                            updated.pm_tmux_session = Some(pm_session.clone());
+                            updated.updated_at = Utc::now();
+                            let _ = self.store.save_project(&updated);
+                        }
+                        self.active_sessions.insert(pm_session.clone());
+                        self.rebuild_tree();
+                        Some(pm_session)
+                    }
+                    Err(e) => {
+                        self.error_message = Some(format!("Failed to create PM session: {}", e));
+                        None
+                    }
+                }
             }
             TreeItem::Task { id, project_id, .. } => {
                 let task = self
