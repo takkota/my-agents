@@ -413,16 +413,17 @@ impl Modal for EditProjectModal {
             Constraint::Length(3), // Description
             Constraint::Length(3), // CopyFiles
             Constraint::Length(5), // DevEnvPrompt
-            Constraint::Length(5), // Repos
-            Constraint::Length(1), // PM toggle
         ];
 
         if self.pm_enabled {
+            constraints.push(Constraint::Min(5));   // Repos (flexible)
+            constraints.push(Constraint::Length(1)); // PM toggle
             constraints.push(Constraint::Length(5)); // PM Agent CLI
             constraints.push(Constraint::Length(3)); // PM Cron
             constraints.push(Constraint::Min(3));   // PM Custom Instructions
         } else {
-            constraints.push(Constraint::Min(0));
+            constraints.push(Constraint::Min(5));   // Repos (takes remaining space)
+            constraints.push(Constraint::Length(1)); // PM toggle
         }
 
         let chunks = Layout::vertical(constraints).split(inner);
@@ -434,6 +435,7 @@ impl Modal for EditProjectModal {
         self.repo_list.render(frame, chunks[4]);
 
         // PM toggle
+        let pm_toggle_idx = 5;
         let pm_focused = matches!(self.current_field, ProjectField::PmEnabled);
         let toggle_style = if pm_focused {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -445,7 +447,7 @@ impl Modal for EditProjectModal {
             Span::styled(toggle_text, toggle_style),
             Span::styled("  (Space to toggle)", Style::default().fg(Color::DarkGray)),
         ]);
-        frame.render_widget(Paragraph::new(toggle_line), chunks[5]);
+        frame.render_widget(Paragraph::new(toggle_line), chunks[pm_toggle_idx]);
 
         if self.pm_enabled {
             self.pm_agent_cli_list.render(frame, chunks[6]);
