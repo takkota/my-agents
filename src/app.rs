@@ -1266,10 +1266,12 @@ impl App {
         }
 
         let pm_session = TmuxService::pm_session_name(project_id);
-        let pm_dir = self.store.pm_dir(project_id);
+        let project_dir = self.store.project_dir(project_id);
+        let pm_state_dir = self.store.pm_dir(project_id);
+        std::fs::create_dir_all(&pm_state_dir)?;
 
         // Remove guard file to cancel any pending Codex prompt thread
-        let guard_file = pm_dir.join(".pm_prompt_guard");
+        let guard_file = pm_state_dir.join(".pm_prompt_guard");
         let _ = std::fs::remove_file(&guard_file);
 
         // Kill existing PM session (fresh start each trigger for config reload)
@@ -1277,12 +1279,11 @@ impl App {
             let _ = self.tmux.kill_session(&pm_session);
         }
 
-        // Write PM config files
+        // Write PM config files to project dir (PM inherits project-level skills/settings)
         self.store.write_pm_config_files(&project)?;
 
-        // Create PM session
-        std::fs::create_dir_all(&pm_dir)?;
-        self.tmux.create_session(&pm_session, &pm_dir)?;
+        // Create PM session in project dir (not pm subdir)
+        self.tmux.create_session(&pm_session, &project_dir)?;
 
         let trigger_prompt = match agent_cli {
             AgentCli::Claude => "/pm-manager",
@@ -1291,7 +1292,7 @@ impl App {
             AgentCli::None => return Ok(()),
         };
 
-        let history_marker = pm_dir.join(".has_history");
+        let history_marker = pm_state_dir.join(".has_history");
         // Create guard file for Codex deferred-prompt thread safety
         let _ = std::fs::write(&guard_file, "");
         if history_marker.exists() {
@@ -1299,7 +1300,7 @@ impl App {
             self.tmux.launch_agent_resume(&pm_session, &agent_cli, trigger_prompt, Some(&guard_file))?;
         } else {
             // First run: launch fresh with prompt file
-            let prompt_file = pm_dir.join(".initial_prompt");
+            let prompt_file = pm_state_dir.join(".initial_prompt");
             std::fs::write(&prompt_file, trigger_prompt)?;
             self.tmux.launch_agent(&pm_session, &agent_cli, Some(&prompt_file))?;
             // Mark that a session has been started for future resumes

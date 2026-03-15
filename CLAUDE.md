@@ -43,12 +43,14 @@ Single enum representing all possible state transitions. Modal `handle_key()` me
 On startup, `install_scripts()` embeds the `ma-task` bash script (via `include_str!`) into `~/.my-agents/bin/`. The script is auto-updated when the binary version changes.
 
 When creating agent sessions, `write_agent_config_files()` generates:
-- **CLAUDE.md** / **AGENTS.md** — `@repo/` references to upstream config + skill trigger description
+- **CLAUDE.md** / **AGENTS.md** / **GEMINI.md** — `@repo/` references to upstream config + skill trigger description
 - **Claude Code skill** — `.claude/skills/task-management/SKILL.md` (with `allowed-tools: Bash`)
 - **Codex skill** — `.agents/skills/task-management/SKILL.md` (standard Agent Skills format)
+- **Gemini CLI skill** — `.gemini/skills/task-management/SKILL.md` (no `allowed-tools`, Gemini manages tool permissions separately)
 - **Claude hooks** — `.claude/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks for auto status tracking and PR link discovery
+- **Gemini hooks** — `.gemini/settings.json` with `BeforeAgent`, `AfterAgent`, and `AfterTool` hooks
 - **Codex notify** — writes `.codex/config.toml` in the task directory with `notify` pointing to `ma-codex-notify` (project-level config, no global config modification)
-- Both skills share the same body via `skill_body()` helper, differing only in frontmatter
+- All three agent skills share the same body via `skill_body()` helper, differing only in frontmatter and directory placement
 
 ### Services (services/)
 - `TmuxService` — create/kill/attach sessions, capture pane content, launch agent CLI

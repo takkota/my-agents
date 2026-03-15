@@ -287,7 +287,8 @@ impl FsStore {
                 task.id, task.project_id
             ));
             gemini_lines.push(
-                "Use the `ma-task` command to manage tasks. Run `ma-task current` to see your task details."
+                "Use the task-management skill when you need to check task details, \
+                 update status, add links, or create new tasks."
                     .to_string(),
             );
             if !pr_prompt.trim().is_empty() {
@@ -348,9 +349,10 @@ impl FsStore {
             self.write_codex_notify(task)?;
         }
 
-        // Write Gemini CLI hooks config for Gemini agent tasks
+        // Write Gemini CLI hooks config and skill for Gemini agent tasks
         if task.agent_cli == crate::domain::task::AgentCli::Gemini {
             self.write_gemini_hooks(task)?;
+            self.write_gemini_skill(task)?;
         }
 
         // Write dev-environment skill if project has dev_environment_prompt
@@ -381,17 +383,15 @@ impl FsStore {
                 fs::write(&agents_md_path, content)?;
             }
             if task.agent_cli == crate::domain::task::AgentCli::Gemini {
-                // Append dev-environment instructions to GEMINI.md
+                Self::write_dev_env_skill_gemini(&dir, task, prompt)?;
+                // Append dev-environment skill reference to GEMINI.md
                 let gemini_md_path = dir.join("GEMINI.md");
                 let mut content = if gemini_md_path.exists() {
                     fs::read_to_string(&gemini_md_path)?
                 } else {
                     String::new()
                 };
-                content.push_str(&format!(
-                    "\n## Dev Environment\n\n{}\n\nAfter starting the dev server, register preview URLs:\n```bash\nma-task preview-url {} <url> --name <service-name>\n```\n",
-                    prompt, task.id
-                ));
+                content.push_str("\n## Dev Environment\nUse the dev-environment skill to start the development server and register preview URLs.\n");
                 fs::write(&gemini_md_path, content)?;
             }
         }
@@ -995,6 +995,28 @@ ma-task projects
         Ok(())
     }
 
+    /// Write `.gemini/skills/task-management/SKILL.md` in the task directory for Gemini CLI.
+    fn write_gemini_skill(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+        let skill_dir = task_dir
+            .join(".gemini")
+            .join("skills")
+            .join("task-management");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: task-management\n\
+             description: \"Use when you need to check your task details, update task status, \
+             add links (PR/issue URLs), or create/list tasks in the project.\"\n\
+             ---\n\n{}",
+            Self::skill_body(task),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
     /// Generate the body for the dev-environment skill.
     fn dev_env_skill_body(task: &Task, prompt: &str) -> String {
         format!(
@@ -1075,6 +1097,26 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
         Ok(())
     }
 
+    /// Write `.gemini/skills/dev-environment/SKILL.md` in the task directory for Gemini CLI.
+    fn write_dev_env_skill_gemini(dir: &std::path::Path, task: &Task, prompt: &str) -> AppResult<()> {
+        let skill_dir = dir
+            .join(".gemini")
+            .join("skills")
+            .join("dev-environment");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: dev-environment\n\
+             description: \"Use to start the development environment and register preview URLs for this project.\"\n\
+             ---\n\n{}",
+            Self::dev_env_skill_body(task, prompt),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
     // PM (Project Manager) methods
 
     pub fn pm_dir(&self, project_id: &str) -> PathBuf {
@@ -1082,8 +1124,8 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
     }
 
     pub fn write_pm_config_files(&self, project: &Project) -> AppResult<()> {
-        let pm_dir = self.pm_dir(&project.id);
-        fs::create_dir_all(&pm_dir)?;
+        let project_dir = self.project_dir(&project.id);
+        fs::create_dir_all(&project_dir)?;
 
         let agent_cli = project.pm_agent_cli.unwrap_or(crate::domain::task::AgentCli::Claude);
         let custom_instructions = project.pm_custom_instructions.as_deref().unwrap_or("");
@@ -1093,11 +1135,11 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
 
         match agent_cli {
             crate::domain::task::AgentCli::Claude => {
-                // Write CLAUDE.md
-                fs::write(pm_dir.join("CLAUDE.md"), &pm_config_body)?;
+                // Write CLAUDE.md to project dir (PM runs here directly)
+                fs::write(project_dir.join("CLAUDE.md"), &pm_config_body)?;
 
-                // Write PM skill
-                let skill_dir = pm_dir.join(".claude").join("skills").join("pm-manager");
+                // Write PM skill to project dir
+                let skill_dir = project_dir.join(".claude").join("skills").join("pm-manager");
                 fs::create_dir_all(&skill_dir)?;
                 let skill_md = format!(
                     "---\n\
@@ -1109,21 +1151,17 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                 );
                 fs::write(skill_dir.join("SKILL.md"), skill_md)?;
 
-                // Write Stop hook only
-                self.write_pm_claude_hooks(project)?;
+                // No separate hooks needed — PM inherits project-level settings.json
 
-                // Copy project-level skills
-                self.copy_pm_project_skills(project)?;
-
-                // Trust PM dir
-                Self::ensure_claude_trust(&pm_dir)?;
+                // Trust project dir
+                Self::ensure_claude_trust(&project_dir)?;
             }
             crate::domain::task::AgentCli::Codex => {
-                // Write AGENTS.md
-                fs::write(pm_dir.join("AGENTS.md"), &pm_config_body)?;
+                // Write AGENTS.md to project dir
+                fs::write(project_dir.join("AGENTS.md"), &pm_config_body)?;
 
-                // Write PM skill for Codex
-                let skill_dir = pm_dir.join(".agents").join("skills").join("pm-manager");
+                // Write PM skill to project dir
+                let skill_dir = project_dir.join(".agents").join("skills").join("pm-manager");
                 fs::create_dir_all(&skill_dir)?;
                 let skill_md = format!(
                     "---\n\
@@ -1133,19 +1171,22 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                     pm_skill,
                 );
                 fs::write(skill_dir.join("SKILL.md"), skill_md)?;
-
-                // Copy project-level skills
-                self.copy_pm_project_skills(project)?;
             }
             crate::domain::task::AgentCli::Gemini => {
-                // Write GEMINI.md
-                fs::write(pm_dir.join("GEMINI.md"), &pm_config_body)?;
+                // Write GEMINI.md to project dir
+                fs::write(project_dir.join("GEMINI.md"), &pm_config_body)?;
 
-                // Write AfterAgent hook only
-                self.write_pm_gemini_hooks(project)?;
-
-                // Copy project-level skills
-                self.copy_pm_project_skills(project)?;
+                // Write PM skill to project dir
+                let skill_dir = project_dir.join(".gemini").join("skills").join("pm-manager");
+                fs::create_dir_all(&skill_dir)?;
+                let skill_md = format!(
+                    "---\n\
+                     name: pm-manager\n\
+                     description: Use to check project task progress, analyze agent sessions, and provide status reports with recommendations.\n\
+                     ---\n\n{}",
+                    pm_skill,
+                );
+                fs::write(skill_dir.join("SKILL.md"), skill_md)?;
             }
             crate::domain::task::AgentCli::None => {}
         }
@@ -1186,7 +1227,7 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
             crate::domain::task::AgentCli::Gemini => {
                 lines.push("## How to Start".to_string());
                 lines.push(String::new());
-                lines.push("Use the pm-manager skill instructions below to perform your review.".to_string());
+                lines.push("Use the pm-manager skill to perform your review.".to_string());
             }
             _ => {}
         }
@@ -1256,110 +1297,6 @@ ma-task create --project {project_id} --name "task name" --priority P3
         )
     }
 
-    fn write_pm_claude_hooks(&self, project: &Project) -> AppResult<()> {
-        let pm_dir = self.pm_dir(&project.id);
-        let claude_dir = pm_dir.join(".claude");
-        fs::create_dir_all(&claude_dir)?;
-
-        // PM only needs Stop hook (no UserPromptSubmit or PostToolUse)
-        let settings = serde_json::json!({
-            "hooks": {
-                "Stop": [
-                    {
-                        "matcher": "",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": "true"
-                            }
-                        ]
-                    }
-                ]
-            }
-        });
-
-        // Merge allowed settings from project-level .claude/settings.json
-        let mut settings = settings;
-        const ALLOWED_PROJECT_KEYS: &[&str] = &["enabledPlugins"];
-        let project_settings_path = self
-            .project_dir(&project.id)
-            .join(".claude")
-            .join("settings.json");
-        if project_settings_path.exists() {
-            if let Ok(content) = fs::read_to_string(&project_settings_path) {
-                if let Ok(project_settings) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(project_obj) = project_settings.as_object() {
-                        if let Some(settings_obj) = settings.as_object_mut() {
-                            for key in ALLOWED_PROJECT_KEYS {
-                                if let Some(value) = project_obj.get(*key) {
-                                    settings_obj.insert((*key).to_string(), value.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        fs::write(
-            claude_dir.join("settings.json"),
-            serde_json::to_string_pretty(&settings)?,
-        )?;
-
-        Ok(())
-    }
-
-    fn write_pm_gemini_hooks(&self, project: &Project) -> AppResult<()> {
-        let pm_dir = self.pm_dir(&project.id);
-        let gemini_dir = pm_dir.join(".gemini");
-        fs::create_dir_all(&gemini_dir)?;
-
-        // PM only needs AfterAgent hook
-        let settings = serde_json::json!({
-            "hooks": {
-                "AfterAgent": [
-                    {
-                        "matcher": "",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": "true"
-                            }
-                        ]
-                    }
-                ]
-            }
-        });
-
-        fs::write(
-            gemini_dir.join("settings.json"),
-            serde_json::to_string_pretty(&settings)?,
-        )?;
-
-        Ok(())
-    }
-
-    /// Copy project-level skills to PM directory
-    fn copy_pm_project_skills(&self, project: &Project) -> AppResult<()> {
-        let project_dir = self.project_dir(&project.id);
-        let pm_dir = self.pm_dir(&project.id);
-
-        let project_claude_skills = project_dir.join(".claude").join("skills");
-        if project_claude_skills.is_dir() {
-            let pm_claude_skills = pm_dir.join(".claude").join("skills");
-            fs::create_dir_all(&pm_claude_skills)?;
-            Self::copy_skills_dir(&project_claude_skills, &pm_claude_skills)?;
-        }
-
-        let project_agents_skills = project_dir.join(".agents").join("skills");
-        if project_agents_skills.is_dir() {
-            let pm_agents_skills = pm_dir.join(".agents").join("skills");
-            fs::create_dir_all(&pm_agents_skills)?;
-            Self::copy_skills_dir(&project_agents_skills, &pm_agents_skills)?;
-        }
-
-        Ok(())
-    }
 
     pub fn ensure_quickstart(&self) -> AppResult<()> {
         let projects = self.list_projects()?;
