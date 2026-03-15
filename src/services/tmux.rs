@@ -170,6 +170,44 @@ impl TmuxService {
         Ok(())
     }
 
+    /// Launch an agent with `resume_command()` to continue the previous conversation.
+    /// For CLIs that support inline prompts (Claude, Gemini), the prompt is embedded
+    /// in the command. For Codex (`resume --last`), the prompt is sent separately
+    /// after a short delay.
+    pub fn launch_agent_resume(
+        &self,
+        session: &str,
+        cli: &AgentCli,
+        prompt: &str,
+    ) -> AppResult<()> {
+        if let Some(cmd) = cli.resume_command() {
+            match cli {
+                // Codex `resume --last` doesn't accept inline prompts
+                AgentCli::Codex => {
+                    Self::tmux_cmd()
+                        .args(["send-keys", "-t", session, &cmd, "Enter"])
+                        .output()?;
+                    // Send prompt after agent startup
+                    let session_owned = session.to_string();
+                    let prompt_owned = prompt.to_string();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        let tmux = TmuxService::new();
+                        let _ = tmux.send_prompt(&session_owned, AgentCli::Codex, &prompt_owned);
+                    });
+                }
+                // Claude and Gemini accept inline prompts
+                _ => {
+                    let full_cmd = format!("{} \"{}\"", cmd, prompt.replace('"', "\\\""));
+                    Self::tmux_cmd()
+                        .args(["send-keys", "-t", session, &full_cmd, "Enter"])
+                        .output()?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn send_prompt(&self, session: &str, cli: AgentCli, text: &str) -> AppResult<()> {
         match cli {
             // Codex treats rapid `send-keys ... Enter` input as a paste burst and may leave the

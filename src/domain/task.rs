@@ -111,6 +111,17 @@ impl AgentCli {
             _ => cmd.to_string(),
         })
     }
+
+    /// Returns the launch command that resumes the previous conversation.
+    /// Used by PM sessions to preserve context across cron triggers.
+    pub fn resume_command(&self) -> Option<String> {
+        self.command().map(|cmd| match self {
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue", cmd),
+            AgentCli::Codex => format!("{} resume --last", cmd),
+            AgentCli::Gemini => format!("{} --approval-mode=yolo --resume", cmd),
+            AgentCli::None => cmd.to_string(),
+        })
+    }
 }
 
 impl fmt::Display for AgentCli {

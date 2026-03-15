@@ -1280,18 +1280,25 @@ impl App {
         std::fs::create_dir_all(&pm_dir)?;
         self.tmux.create_session(&pm_session, &pm_dir)?;
 
-        // Write trigger prompt to file and pass as CLI argument (same as task creation)
         let trigger_prompt = match agent_cli {
             AgentCli::Claude => "/pm-manager",
             AgentCli::Codex => "$pm-manager",
             AgentCli::Gemini => "pm-managerスキルを使って現況確認を行ってください",
             AgentCli::None => return Ok(()),
         };
-        let prompt_file = pm_dir.join(".initial_prompt");
-        std::fs::write(&prompt_file, trigger_prompt)?;
 
-        // Launch agent with initial prompt embedded in CLI args
-        self.tmux.launch_agent(&pm_session, &agent_cli, Some(&prompt_file))?;
+        let history_marker = pm_dir.join(".has_history");
+        if history_marker.exists() {
+            // Resume previous conversation to preserve context
+            self.tmux.launch_agent_resume(&pm_session, &agent_cli, trigger_prompt)?;
+        } else {
+            // First run: launch fresh with prompt file
+            let prompt_file = pm_dir.join(".initial_prompt");
+            std::fs::write(&prompt_file, trigger_prompt)?;
+            self.tmux.launch_agent(&pm_session, &agent_cli, Some(&prompt_file))?;
+            // Mark that a session has been started for future resumes
+            let _ = std::fs::write(&history_marker, "");
+        }
 
         // Save PM session name to project
         if let Some(proj) = self.projects.iter().find(|p| p.id == project_id).cloned() {
