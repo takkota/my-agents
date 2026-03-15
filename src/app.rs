@@ -13,7 +13,7 @@ use crate::components::modals::settings::SettingsModal;
 use crate::components::modals::sort::SortModal;
 use crate::components::modals::{centered_rect, centered_rect_with_max, Modal};
 use crate::components::preview_panel::PreviewPanel;
-use crate::components::status_bar::StatusBar;
+use crate::components::status_bar::{SelectionContext, StatusBar};
 use crate::components::task_tree::{TaskTree, TreeItem};
 use crate::config::Config;
 use crate::domain::project::{Project, RepoRef};
@@ -1627,7 +1627,12 @@ impl App {
         if self.active_modal.is_some() {
             StatusBar::render_modal(frame, main_chunks[1]);
         } else {
-            StatusBar::render_main(frame, main_chunks[1], self.error_message.as_deref());
+            let context = match self.task_tree.selected_item() {
+                Some(TreeItem::Project { .. }) => SelectionContext::Project,
+                Some(TreeItem::Task { .. }) => SelectionContext::Task,
+                None => SelectionContext::None,
+            };
+            StatusBar::render_main(frame, main_chunks[1], self.error_message.as_deref(), context);
         }
 
         // Modal overlay
