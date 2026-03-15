@@ -172,6 +172,55 @@ ma-task run <task-id>
 }
 ```
 
+### prompt — 実行中タスクへプロンプト送信
+
+```bash
+ma-task prompt <task-id> <text>
+ma-task prompt <task-id> --stdin
+```
+
+実行中のタスクのエージェント tmux セッションにプロンプトを送信する。
+
+| オプション | 説明 |
+|---|---|
+| `--stdin` | プロンプトテキストを stdin から読み取る (マルチライン対応) |
+
+**送信方法はエージェントに応じて異なる:**
+
+| agent_cli | 方式 | 理由 |
+|---|---|---|
+| Claude / Gemini / None | `tmux send-keys -l` (リテラル送信) | 特殊キー名の誤解釈を防止 |
+| Codex | `tmux set-buffer` + `paste-buffer` (ブラケットペースト) | Codex が高速な send-keys をペーストバーストとして扱いコンポーザーに残すのを防止 |
+
+**事前チェック:**
+
+1. タスクに `tmux_session` が設定されていること
+2. tmux セッションが実際に存在すること
+3. エージェントプロセス (`claude`, `codex`, `gemini`) がペイン内で実行中であること
+
+エージェントが起動していない場合はエラーとなる。`ma-task run <task-id>` で先にエージェントを起動すること。
+
+**出力:**
+
+```json
+{"ok": true}
+```
+
+**例:**
+
+```bash
+# インラインでプロンプト送信
+ma-task prompt a1b2c3d4 "テストを実行して結果を報告してください"
+
+# stdin からマルチラインプロンプトを送信
+cat <<'EOF' | ma-task prompt a1b2c3d4 --stdin
+以下の手順で修正してください:
+1. auth.rs のタイムアウト値を変更
+2. テストを実行
+3. PR を作成
+EOF
+```
+
 ### delete — タスク削除
 
 ```bash
