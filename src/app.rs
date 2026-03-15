@@ -354,26 +354,33 @@ impl App {
                 return Ok(Some(Action::OpenSetLink));
             }
             KeyCode::Char('o') => {
-                // Open task link(s) in external browser
-                if let Some(TreeItem::Task { id, project_id, .. }) = self.task_tree.selected_item()
-                {
-                    if let Some(tasks) = self.tasks_by_project.get(project_id.as_str()) {
-                        if let Some(task) = tasks.iter().find(|t| t.id == *id) {
-                            match task.links.len() {
-                                0 => {}
-                                1 => {
-                                    return Ok(Some(Action::OpenLinkInBrowser {
-                                        url: task.links[0].url.clone(),
-                                    }));
-                                }
-                                _ => {
-                                    self.active_modal = Some(ModalKind::SelectLink(
-                                        SelectLinkModal::new(task.links.clone()),
-                                    ));
+                match self.task_tree.selected_item() {
+                    // Task selected: open link(s) in external browser
+                    Some(TreeItem::Task { id, project_id, .. }) => {
+                        if let Some(tasks) = self.tasks_by_project.get(project_id.as_str()) {
+                            if let Some(task) = tasks.iter().find(|t| t.id == *id) {
+                                match task.links.len() {
+                                    0 => {}
+                                    1 => {
+                                        return Ok(Some(Action::OpenLinkInBrowser {
+                                            url: task.links[0].url.clone(),
+                                        }));
+                                    }
+                                    _ => {
+                                        self.active_modal = Some(ModalKind::SelectLink(
+                                            SelectLinkModal::new(task.links.clone()),
+                                        ));
+                                    }
                                 }
                             }
                         }
                     }
+                    // Project selected: toggle task list expand/collapse
+                    Some(TreeItem::Project { .. }) => {
+                        self.task_tree.toggle_expand();
+                        self.rebuild_tree();
+                    }
+                    None => {}
                 }
             }
             KeyCode::Char(c @ '1'..='5') => {
@@ -1416,14 +1423,12 @@ impl App {
 
         match item {
             TreeItem::Project { id, .. } => {
-                // If PM is enabled and session exists, attach to it
+                // If PM session exists, attach to it
                 let pm_session = TmuxService::pm_session_name(&id);
                 if self.tmux.session_exists(&pm_session) {
                     return Some(pm_session);
                 }
-                // Otherwise toggle expand
-                self.task_tree.toggle_expand();
-                self.rebuild_tree();
+                // No PM session — use 'o' to toggle expand instead
                 None
             }
             TreeItem::Task { id, project_id, .. } => {
