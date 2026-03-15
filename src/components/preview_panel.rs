@@ -5,6 +5,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
+use std::io::{Read as _, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
@@ -102,15 +103,12 @@ impl PreviewPanel {
     }
 
     /// Update preview from a file (used for PM non-interactive output).
-    /// Reads the file content and displays it in the preview panel.
+    /// Reads only the tail of the file to avoid excessive I/O on large outputs.
     pub fn update_preview_from_file(&mut self, file_path: &Path, session_label: &str) {
         self.current_session = Some(format!("PM: {}", session_label));
-        match std::fs::read_to_string(file_path) {
+        match read_file_tail(file_path, 500) {
             Ok(content) if !content.is_empty() => {
-                // Limit to last 500 lines to avoid huge reads
-                let lines: Vec<&str> = content.lines().collect();
-                let start = lines.len().saturating_sub(500);
-                self.content = lines[start..].join("\n");
+                self.content = content;
             }
             Ok(_) => {
                 self.content = "PM is running... (waiting for output)".to_string();
@@ -457,4 +455,34 @@ impl PreviewPanel {
             self.render_session(frame, area);
         }
     }
+}
+
+/// Read the last `max_lines` lines from a file efficiently by seeking from the end.
+/// Falls back to full read for small files (< 64KB).
+fn read_file_tail(path: &Path, max_lines: usize) -> std::io::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    let file_size = metadata.len();
+
+    // For small files, just read everything
+    const TAIL_BUF_SIZE: u64 = 64 * 1024; // 64KB
+    if file_size <= TAIL_BUF_SIZE {
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        return Ok(content);
+    }
+
+    // Seek to near the end and read the tail chunk
+    file.seek(SeekFrom::End(-(TAIL_BUF_SIZE as i64)))?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf)?;
+
+    // Skip the first partial line (we likely landed mid-line)
+    let lines: Vec<&str> = buf.lines().collect();
+    let start = if lines.len() > max_lines {
+        lines.len() - max_lines
+    } else {
+        1 // skip first partial line
+    };
+    Ok(lines[start..].join("\n"))
 }
