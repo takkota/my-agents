@@ -803,9 +803,12 @@ cmd_prompt() {
                 || die "failed to submit prompt"
             ;;
         *)
-            # Claude, Gemini, None: simple send-keys
-            tmux send-keys -t "$tmux_session" "$text" Enter \
+            # Claude, Gemini, None: send-keys with -l (literal) to prevent
+            # tmux from interpreting text as special key names (e.g. "Enter", "Escape")
+            tmux send-keys -t "$tmux_session" -l "$text" \
                 || die "failed to send prompt to tmux session"
+            tmux send-keys -t "$tmux_session" Enter \
+                || die "failed to submit prompt"
             ;;
     esac
 
