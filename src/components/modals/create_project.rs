@@ -367,7 +367,7 @@ impl Modal for CreateProjectModal {
             constraints.push(Constraint::Length(3)); // PM Cron
             constraints.push(Constraint::Min(3));   // PM Custom Instructions
         } else {
-            constraints.push(Constraint::Min(10));  // Repos (takes remaining space)
+            constraints.push(Constraint::Length(15)); // Repos (capped)
             constraints.push(Constraint::Length(1)); // PM toggle
         }
 
