@@ -265,7 +265,7 @@ impl TaskTree {
                     let status_color = match status {
                         Status::Todo => Color::Gray,
                         Status::InProgress => Color::Blue,
-                        Status::ActionRequired => Color::LightRed,
+                        Status::ActionRequired => Color::Yellow,
                         Status::Completed => Color::Green,
                         Status::Blocked => Color::Red,
                     };
