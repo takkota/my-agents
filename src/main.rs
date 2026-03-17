@@ -261,6 +261,12 @@ fn cmd_launch_agent(args: &[String]) -> AppResult<()> {
         let _ = std::fs::write(task_dir.join(".prompt_submitted"), "");
     }
 
+    // Persist agent_launched flag
+    let mut task = task;
+    task.agent_launched = true;
+    task.tmux_session = Some(session_name.clone());
+    store.save_task(&task)?;
+
     let result = serde_json::json!({
         "task_id": task_id,
         "project_id": project_id,

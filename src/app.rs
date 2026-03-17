@@ -23,6 +23,7 @@ use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
 use crate::services::pm_scheduler::{PmScheduler, PmSchedulerEvent};
 use crate::services::pr_monitor::PrMonitor;
+use crate::services::session_restore;
 use crate::services::task_setup::{self, write_initial_prompt, TaskSetupInput};
 use crate::services::tmux::TmuxService;
 use crate::services::worktree::WorktreeService;
@@ -67,6 +68,9 @@ pub struct App {
 
     // Background task setup receiver
     task_setup_rx: Vec<mpsc::Receiver<TaskSetupResult>>,
+
+    // Background session restore receiver
+    session_restore_rx: Option<mpsc::Receiver<Vec<session_restore::SessionRestoreResult>>>,
 
     // Monitors
     agent_monitor: AgentMonitor,
@@ -155,6 +159,7 @@ impl App {
             repo_scan_rx: Some(rx),
             active_sessions: HashSet::new(),
             task_setup_rx: Vec::new(),
+            session_restore_rx: None,
             agent_monitor,
             pr_monitor,
             pm_scheduler,
@@ -168,6 +173,9 @@ impl App {
 
         app.reload_data()?;
         app.last_data_fingerprint = app.store.data_fingerprint();
+
+        // Restore tmux sessions lost after reboot (async)
+        app.session_restore_rx = session_restore::restore_sessions_async(&app.store, &app.tmux);
 
         // Re-generate hooks for all existing agent tasks
         // to ensure latest hook configuration.
@@ -227,6 +235,29 @@ impl App {
             let _ = self.reload_data();
             self.rebuild_tree();
             self.refresh_preview_task_info();
+        }
+    }
+
+    /// Poll for session restore results from the background thread.
+    fn poll_session_restore_results(&mut self) {
+        if let Some(rx) = &self.session_restore_rx {
+            match rx.try_recv() {
+                Ok(results) => {
+                    self.session_restore_rx = None;
+                    let restored_count = results.iter().filter(|r| r.success).count();
+                    if restored_count > 0 {
+                        // Reload data to pick up any changes from the restore thread
+                        let _ = self.reload_data();
+                        self.rebuild_tree();
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still running
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.session_restore_rx = None;
+                }
+            }
         }
     }
 
@@ -1132,6 +1163,9 @@ impl App {
                 // Poll background task setup results
                 self.poll_task_setup_results();
 
+                // Poll background session restore results
+                self.poll_session_restore_results();
+
                 // Refresh active sessions periodically
                 self.active_sessions.clear();
                 if let Ok(sessions) = self.tmux.list_sessions() {
@@ -1444,6 +1478,7 @@ impl App {
             created_at: now,
             updated_at: now,
             reopened_at: None,
+            agent_launched: false,
         };
 
         self.store.save_task(&task)?;
@@ -1631,11 +1666,14 @@ impl App {
                                 );
                             }
                         }
-                        // Persist the session name if it wasn't stored yet
-                        if task.tmux_session.is_none() {
+                        // Persist the session name and agent_launched flag
+                        if task.tmux_session.is_none() || !task.agent_launched {
                             if let Some(tasks) = self.tasks_by_project.get_mut(&project_id) {
                                 if let Some(t) = tasks.iter_mut().find(|t| t.id == id) {
                                     t.tmux_session = Some(session_name.clone());
+                                    if task.agent_cli != AgentCli::None {
+                                        t.agent_launched = true;
+                                    }
                                     if let Err(e) = self.store.save_task(t) {
                                         self.error_message =
                                             Some(format!("Failed to save task: {}", e));
