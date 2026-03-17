@@ -69,7 +69,7 @@ pub struct App {
     // Background task setup receiver
     task_setup_rx: Vec<mpsc::Receiver<TaskSetupResult>>,
 
-    // Background session restore receiver
+    // Background session restore receiver (results include per-task error info)
     session_restore_rx: Option<mpsc::Receiver<Vec<session_restore::SessionRestoreResult>>>,
 
     // Monitors
@@ -245,6 +245,14 @@ impl App {
                 Ok(results) => {
                     self.session_restore_rx = None;
                     let restored_count = results.iter().filter(|r| r.success).count();
+                    let errors: Vec<&str> = results
+                        .iter()
+                        .filter_map(|r| r.error.as_deref())
+                        .collect();
+                    if !errors.is_empty() {
+                        self.error_message =
+                            Some(format!("Session restore: {}", errors.join("; ")));
+                    }
                     if restored_count > 0 {
                         // Reload data to pick up any changes from the restore thread
                         let _ = self.reload_data();
@@ -1633,6 +1641,15 @@ impl App {
 
                 // Session already exists – just attach
                 if self.tmux.session_exists(&session_name) {
+                    // Backfill agent_launched for tasks created before this flag existed
+                    if !task.agent_launched && task.agent_cli != AgentCli::None {
+                        if let Some(tasks) = self.tasks_by_project.get_mut(&project_id) {
+                            if let Some(t) = tasks.iter_mut().find(|t| t.id == id) {
+                                t.agent_launched = true;
+                                let _ = self.store.save_task(t);
+                            }
+                        }
+                    }
                     return Some(session_name);
                 }
 
