@@ -143,6 +143,7 @@ pub fn run_task_setup(
                         prompt_file.as_deref(),
                     ) {
                         Ok(()) => {
+                            updated_task.agent_launched = true;
                             // If an initial prompt was provided, create the
                             // .prompt_submitted marker so the monitor can
                             // transition Todo → InProgress even if the

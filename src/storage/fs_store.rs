@@ -1397,6 +1397,7 @@ ma-task create --project {project_id} --name "タスク名" --priority P3
             created_at: now,
             updated_at: now,
             reopened_at: None,
+            agent_launched: false,
         };
         self.save_task(&task)?;
 

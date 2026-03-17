@@ -244,4 +244,8 @@ pub struct Task {
     /// PrMonitor uses this to avoid auto-completing from already-merged PRs.
     #[serde(default)]
     pub reopened_at: Option<DateTime<Utc>>,
+    /// Set to true once an agent CLI has been launched for this task.
+    /// Used to restore tmux sessions after a reboot.
+    #[serde(default)]
+    pub agent_launched: bool,
 }
