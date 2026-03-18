@@ -169,7 +169,7 @@ default_agent_cli = "Claude"
 tick_rate_ms = 250
 
 # Agent状態監視間隔 (秒)
-monitor_interval_secs = 10
+monitor_interval_secs = 3
 ```
 
 ## Tech Stack
