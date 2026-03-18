@@ -333,7 +333,7 @@ async fn main() -> AppResult<()> {
                             // status while the user is inside the tmux session.
                             let bg_store = app.store.clone();
                             let bg_tmux = app.tmux.clone();
-                            let bg_interval = config.monitor_interval_secs;
+                            let bg_interval = config.monitor_interval_secs.max(1);
                             let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let stop_flag_bg = stop_flag.clone();
                             let bg_handle = std::thread::spawn(move || {
