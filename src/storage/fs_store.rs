@@ -967,7 +967,7 @@ ma-task projects
 
 - After creating a PR, always add the link with `ma-task link`.
 - When creating a new task for another agent to execute:
-  1. Use `ma-task create` with `--prompt "..."` to specify the task instructions. The prompt is required so the launched agent knows what to do.
+  1. Use `ma-task create` with `--prompt "..."` to specify the task instructions. The prompt is required so the launched agent knows what to do. **Do NOT use `--notes` instead of `--prompt`** — notes are metadata only and will not be passed to the agent, so the task cannot be executed.
   2. Immediately run `ma-task run <new-task-id>` to set up the worktree, tmux session, and launch the agent.
 "#,
             task_id = task.id,
