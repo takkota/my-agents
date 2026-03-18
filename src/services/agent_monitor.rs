@@ -126,23 +126,34 @@ impl AgentMonitor {
 
     /// Check `.pr_links` file for PR URLs discovered by PostToolUse hook.
     /// Returns events for URLs not already present in the task's links.
-    /// Removes consumed entries from the file to prevent unbounded growth.
+    ///
+    /// Uses an atomic rename to consume the file: the hook appends with `>>`,
+    /// so renaming to a temporary path and then reading avoids the
+    /// read-modify-write race that could lose concurrent appends.
     fn check_pr_links(
         &self,
         task_id: &str,
         project_id: &str,
         existing_links: &[TaskLink],
     ) -> Vec<MonitorEvent> {
-        let pr_links_path = self.store.task_dir(project_id, task_id).join(PR_LINKS_FILE);
+        let task_dir = self.store.task_dir(project_id, task_id);
+        let pr_links_path = task_dir.join(PR_LINKS_FILE);
 
         if !pr_links_path.exists() {
             return Vec::new();
         }
 
-        let content = match std::fs::read_to_string(&pr_links_path) {
+        // Atomically claim the file so concurrent hook appends go to a fresh file.
+        let consumed_path = task_dir.join(".pr_links.consumed");
+        if std::fs::rename(&pr_links_path, &consumed_path).is_err() {
+            return Vec::new();
+        }
+
+        let content = match std::fs::read_to_string(&consumed_path) {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
+        let _ = std::fs::remove_file(&consumed_path);
 
         let urls: Vec<String> = content
             .lines()
@@ -153,30 +164,8 @@ impl AgentMonitor {
             .filter(|url| is_github_pr_url(url))
             .collect();
 
-        let new_urls: Vec<String> = urls
-            .iter()
-            .filter(|url| !existing_links.iter().any(|l| l.url == **url))
-            .cloned()
-            .collect();
-
-        // Remove consumed entries: keep only URLs already in task links
-        // (i.e., not new). Any URL written concurrently by the hook will
-        // survive because it won't be in existing_links yet.
-        if !new_urls.is_empty() {
-            let remaining: Vec<&str> = urls
-                .iter()
-                .filter(|url| existing_links.iter().any(|l| l.url == **url))
-                .map(|s| s.as_str())
-                .collect();
-            if remaining.is_empty() {
-                let _ = std::fs::remove_file(&pr_links_path);
-            } else {
-                let _ = std::fs::write(&pr_links_path, remaining.join("\n") + "\n");
-            }
-        }
-
-        new_urls
-            .into_iter()
+        urls.into_iter()
+            .filter(|url| !existing_links.iter().any(|l| l.url == *url))
             .map(|url| MonitorEvent::PrLinkDiscovered {
                 task_id: task_id.to_string(),
                 project_id: project_id.to_string(),
@@ -185,6 +174,82 @@ impl AgentMonitor {
             .collect()
     }
 
+}
+
+/// Run a self-contained monitor cycle: check marker files and update task
+/// status directly on disk.  Designed to be called from a background thread
+/// (e.g. while the TUI is suspended for tmux attach).
+///
+/// NOTE: The event-application logic here mirrors `App::update(Action::Tick)`
+/// in app.rs (lines ~1234-1292).  If the status-transition rules or marker
+/// cleanup logic change there, they must be updated here as well.
+///
+/// Returns the number of status changes applied so the caller can decide
+/// whether to reload data.
+pub fn run_monitor_cycle(store: &FsStore, tmux: &TmuxService) -> usize {
+    let monitor = AgentMonitor::new(store.clone(), tmux.clone());
+    let events = monitor.check_all();
+    let mut changes = 0;
+
+    for event in events {
+        match event {
+            MonitorEvent::StatusChanged {
+                task_id,
+                project_id,
+                status,
+            } => {
+                let task_dir = store.task_dir(&project_id, &task_id);
+                // Load task, update status, save back
+                if let Ok(tasks) = store.list_tasks(&project_id) {
+                    if let Some(mut task) = tasks.into_iter().find(|t| t.id == task_id) {
+                        if task.status == Status::Completed && status == Status::InProgress {
+                            task.reopened_at = Some(chrono::Utc::now());
+                        }
+                        task.status = status;
+                        task.updated_at = chrono::Utc::now();
+                        if store.save_task(&task).is_ok() {
+                            // Clear marker files after successful save
+                            if status == Status::InProgress {
+                                let _ = std::fs::remove_file(
+                                    task_dir.join(PROMPT_SUBMITTED_FILE),
+                                );
+                            } else if status == Status::ActionRequired {
+                                let _ = std::fs::remove_file(
+                                    task_dir.join(AGENT_STOPPED_FILE),
+                                );
+                                let _ = std::fs::remove_file(
+                                    task_dir.join(PROMPT_SUBMITTED_FILE),
+                                );
+                            }
+                            changes += 1;
+                        }
+                    }
+                }
+            }
+            MonitorEvent::PrLinkDiscovered {
+                task_id,
+                project_id,
+                url,
+            } => {
+                if let Ok(tasks) = store.list_tasks(&project_id) {
+                    if let Some(mut task) = tasks.into_iter().find(|t| t.id == task_id) {
+                        let link = TaskLink {
+                            url,
+                            display_name: None,
+                        };
+                        if !task.links.iter().any(|l| l.url == link.url) {
+                            task.links.push(link);
+                            task.updated_at = chrono::Utc::now();
+                            let _ = store.save_task(&task);
+                            changes += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    changes
 }
 
 /// Validate that a string is a well-formed GitHub PR URL.

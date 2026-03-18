@@ -328,9 +328,35 @@ async fn main() -> AppResult<()> {
                             // Drop is enough — it aborts the background task immediately.
                             drop(events);
                             tui::exit()?;
+
+                            // Spawn a background thread that continues monitoring task
+                            // status while the user is inside the tmux session.
+                            let bg_store = app.store.clone();
+                            let bg_tmux = app.tmux.clone();
+                            let bg_interval = config.monitor_interval_secs.max(1);
+                            let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                            let stop_flag_bg = stop_flag.clone();
+                            let bg_handle = std::thread::spawn(move || {
+                                while !stop_flag_bg.load(std::sync::atomic::Ordering::Relaxed) {
+                                    services::agent_monitor::run_monitor_cycle(&bg_store, &bg_tmux);
+                                    // Sleep in small increments so we can stop promptly
+                                    for _ in 0..(bg_interval * 4) {
+                                        if stop_flag_bg.load(std::sync::atomic::Ordering::Relaxed) {
+                                            return;
+                                        }
+                                        std::thread::sleep(std::time::Duration::from_millis(250));
+                                    }
+                                }
+                            });
+
                             if let Err(e) = app.tmux.attach_session(&session_name) {
                                 app.error_message = Some(format!("tmux attach failed: {}", e));
                             }
+
+                            // Stop background monitor and wait for it to finish
+                            stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                            let _ = bg_handle.join();
+
                             // Resume TUI and event handler first for instant visual feedback,
                             // then reload data in background.
                             terminal = tui::resume()?;

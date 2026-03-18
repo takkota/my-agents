@@ -11,6 +11,7 @@ use unicode_width::UnicodeWidthChar;
 
 const CTRL_Q: u8 = 0x11; // ASCII 17
 
+#[derive(Clone)]
 pub struct TmuxService;
 
 impl TmuxService {
