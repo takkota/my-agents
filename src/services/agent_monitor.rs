@@ -187,6 +187,78 @@ impl AgentMonitor {
 
 }
 
+/// Run a self-contained monitor cycle: check marker files and update task
+/// status directly on disk.  Designed to be called from a background thread
+/// (e.g. while the TUI is suspended for tmux attach).
+///
+/// Returns the number of status changes applied so the caller can decide
+/// whether to reload data.
+pub fn run_monitor_cycle(store: &FsStore, tmux: &TmuxService) -> usize {
+    let monitor = AgentMonitor::new(store.clone(), tmux.clone());
+    let events = monitor.check_all();
+    let mut changes = 0;
+
+    for event in events {
+        match event {
+            MonitorEvent::StatusChanged {
+                task_id,
+                project_id,
+                status,
+            } => {
+                let task_dir = store.task_dir(&project_id, &task_id);
+                // Load task, update status, save back
+                if let Ok(tasks) = store.list_tasks(&project_id) {
+                    if let Some(mut task) = tasks.into_iter().find(|t| t.id == task_id) {
+                        if task.status == Status::Completed && status == Status::InProgress {
+                            task.reopened_at = Some(chrono::Utc::now());
+                        }
+                        task.status = status;
+                        task.updated_at = chrono::Utc::now();
+                        if store.save_task(&task).is_ok() {
+                            // Clear marker files after successful save
+                            if status == Status::InProgress {
+                                let _ = std::fs::remove_file(
+                                    task_dir.join(PROMPT_SUBMITTED_FILE),
+                                );
+                            } else if status == Status::ActionRequired {
+                                let _ = std::fs::remove_file(
+                                    task_dir.join(AGENT_STOPPED_FILE),
+                                );
+                                let _ = std::fs::remove_file(
+                                    task_dir.join(PROMPT_SUBMITTED_FILE),
+                                );
+                            }
+                            changes += 1;
+                        }
+                    }
+                }
+            }
+            MonitorEvent::PrLinkDiscovered {
+                task_id,
+                project_id,
+                url,
+            } => {
+                if let Ok(tasks) = store.list_tasks(&project_id) {
+                    if let Some(mut task) = tasks.into_iter().find(|t| t.id == task_id) {
+                        let link = TaskLink {
+                            url,
+                            display_name: None,
+                        };
+                        if !task.links.iter().any(|l| l.url == link.url) {
+                            task.links.push(link);
+                            task.updated_at = chrono::Utc::now();
+                            let _ = store.save_task(&task);
+                            changes += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    changes
+}
+
 /// Validate that a string is a well-formed GitHub PR URL.
 ///
 /// Rejects common placeholder owner/repo names that appear in documentation
