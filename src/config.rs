@@ -42,7 +42,7 @@ fn default_tick_rate() -> u64 {
 }
 
 fn default_monitor_interval() -> u64 {
-    10
+    3
 }
 
 fn default_pr_monitor_interval() -> u64 {
