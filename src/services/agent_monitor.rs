@@ -212,7 +212,7 @@ fn is_github_pr_url(url: &str) -> bool {
         let repo = parts[4];
         const PLACEHOLDER_OWNERS: &[&str] = &["owner", "org", "example", "user", "your-org"];
         const PLACEHOLDER_REPOS: &[&str] = &["repo", "repository", "my-repo", "your-repo", "example"];
-        if PLACEHOLDER_OWNERS.contains(&owner) && PLACEHOLDER_REPOS.contains(&repo) {
+        if PLACEHOLDER_OWNERS.contains(&owner) || PLACEHOLDER_REPOS.contains(&repo) {
             return false;
         }
     }
@@ -225,8 +225,9 @@ mod tests {
 
     #[test]
     fn test_is_github_pr_url_valid() {
-        assert!(is_github_pr_url("https://github.com/acme/widget/pull/42"));
-        assert!(is_github_pr_url("https://github.com/acme/widget/pull/42/"));
+        assert!(is_github_pr_url("https://github.com/anthropics/claude-code/pull/42"));
+        assert!(is_github_pr_url("https://github.com/anthropics/claude-code/pull/42/"));
+        assert!(is_github_pr_url("https://github.com/acme/widget/pull/99"));
     }
 
     #[test]
@@ -238,18 +239,16 @@ mod tests {
 
     #[test]
     fn test_is_github_pr_url_rejects_placeholders() {
-        // These placeholder URLs appear in documentation and examples
+        // Reject when EITHER owner OR repo is a placeholder
         assert!(!is_github_pr_url("https://github.com/owner/repo/pull/123"));
         assert!(!is_github_pr_url("https://github.com/org/repo/pull/43"));
         assert!(!is_github_pr_url("https://github.com/example/repository/pull/1"));
         assert!(!is_github_pr_url("https://github.com/user/my-repo/pull/99"));
         assert!(!is_github_pr_url("https://github.com/your-org/your-repo/pull/5"));
-    }
-
-    #[test]
-    fn test_is_github_pr_url_allows_real_looking_names() {
-        // Only reject when BOTH owner and repo are placeholders
-        assert!(is_github_pr_url("https://github.com/org/real-project/pull/43"));
-        assert!(is_github_pr_url("https://github.com/real-org/repo/pull/43"));
+        // Also reject when only one side is a placeholder
+        assert!(!is_github_pr_url("https://github.com/org/real-project/pull/43"));
+        assert!(!is_github_pr_url("https://github.com/real-org/repo/pull/43"));
+        assert!(!is_github_pr_url("https://github.com/acme/repository/pull/10"));
+        assert!(!is_github_pr_url("https://github.com/example/widget/pull/7"));
     }
 }
