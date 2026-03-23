@@ -458,11 +458,6 @@ impl FsStore {
         // Claude Code checks parent directories, so this covers the task dir.
         Self::ensure_claude_trust(&dir)?;
 
-        // Mark the task directory as trusted in Cursor's state database
-        // to bypass the "Workspace Trust Required" dialog.
-        if task.agent_cli == crate::domain::task::AgentCli::Cursor {
-            Self::ensure_cursor_trust(&dir);
-        }
 
         Ok(())
     }
@@ -513,85 +508,6 @@ impl FsStore {
         )?;
 
         Ok(())
-    }
-
-    /// Register a directory as trusted in Cursor's state database so the
-    /// "Workspace Trust Required" dialog is skipped. Cursor stores trust info
-    /// in a SQLite database (`state.vscdb`) under the key `content.trust.model.key`.
-    /// We add the directory to the `uriTrustInfo` array via the `sqlite3` CLI.
-    ///
-    /// Errors are silently ignored (Cursor may not be installed, or the DB
-    /// may be locked if Cursor is running) — failing to set trust is not fatal.
-    fn ensure_cursor_trust(dir: &std::path::Path) {
-        let Some(home) = dirs::home_dir() else {
-            return;
-        };
-
-        #[cfg(target_os = "macos")]
-        let db_path = home
-            .join("Library")
-            .join("Application Support")
-            .join("Cursor")
-            .join("User")
-            .join("globalStorage")
-            .join("state.vscdb");
-
-        #[cfg(target_os = "linux")]
-        let db_path = home
-            .join(".config")
-            .join("Cursor")
-            .join("User")
-            .join("globalStorage")
-            .join("state.vscdb");
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        return;
-
-        if !db_path.exists() {
-            return;
-        }
-
-        let dir_str = dir.to_string_lossy();
-        let external = format!("file://{}", dir_str);
-
-        // Build the new trust entry as a JSON string
-        let new_entry = serde_json::json!({
-            "uri": {
-                "$mid": 1,
-                "external": external,
-                "path": dir_str,
-                "scheme": "file"
-            },
-            "trusted": true
-        });
-        let new_entry_str = new_entry.to_string();
-
-        // SQL: read current value, check if path already trusted, append if not.
-        // Uses json_insert / json_set which are available in sqlite3 >= 3.38.
-        // The query is idempotent: if the path is already trusted, no change is made.
-        let sql = format!(
-            r#"UPDATE ItemTable SET value = (
-                SELECT CASE
-                    WHEN value IS NULL THEN json_object('uriTrustInfo', json_array(json('{entry}')))
-                    WHEN instr(value, '{escaped_path}') > 0 THEN value
-                    ELSE json_set(value, '$.uriTrustInfo[#]', json('{entry}'))
-                END
-                FROM ItemTable WHERE key = 'content.trust.model.key'
-            ) WHERE key = 'content.trust.model.key'"#,
-            entry = new_entry_str.replace('\'', "''"),
-            escaped_path = dir_str.replace('\'', "''"),
-        );
-
-        // Also handle the case where the key doesn't exist yet
-        let insert_sql = format!(
-            r#"INSERT OR IGNORE INTO ItemTable (key, value) VALUES ('content.trust.model.key', json_object('uriTrustInfo', json_array(json('{entry}'))))"#,
-            entry = new_entry_str.replace('\'', "''"),
-        );
-
-        let _ = std::process::Command::new("sqlite3")
-            .arg(&db_path)
-            .arg(format!("{insert_sql}; {sql}"))
-            .output();
     }
 
     /// Remove a task directory (and its worktree sub-directories) from the
