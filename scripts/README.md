@@ -13,9 +13,10 @@ AI エージェントおよび外部サービスからタスクを管理する�
 `my-agents` TUI バイナリの初回起動時に `~/.my-agents/bin/ma-task` へ自動インストールされる。
 PATH に `~/.my-agents/bin` を追加するか、直接パスで呼び出す。
 
-## Cursor CLI フック検証
+## Cursor フック
 
-`agent --print` でどのフックが発火するかは Cursor のバージョンで変わり得る。my-agents で Cursor 向けフックを拡張する前に、`cursor-hook-verify/run-verify.sh` を実行して確認すること（詳細は同ディレクトリの `README.md`）。
+- **`ma-cursor-hooks`** — `~/.my-agents/bin/` にインストール。タスクの `.cursor/hooks.json` から呼ばれ、`.prompt_submitted` / `.agent_stopped` / `.pr_links` を更新する。**jq 必須**（`ma-task` と同様）。
+- **検証** — `cursor-hook-verify/run-verify.sh`（`agent --print` での発火確認用。詳細は同ディレクトリの `README.md`）。
 
 ## 環境変数
 

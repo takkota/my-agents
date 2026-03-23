@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Cursor Agent hooks driver for my-agents task markers and PR URL capture.
+# Installed to ~/.my-agents/bin/ma-cursor-hooks by the my-agents binary.
+#
+# Usage: ma-cursor-hooks <task_dir>
+# Reads hook JSON on stdin; writes JSON on stdout per Cursor hook contracts.
+#
+# Dependencies: jq (same as ma-task)
+
+set -euo pipefail
+
+TASK_DIR="${1:?usage: ma-cursor-hooks <task_dir>}"
+input=$(cat || true)
+event=$(echo "$input" | jq -r '.hook_event_name // ""' 2>/dev/null || true)
+
+PS="$TASK_DIR/.prompt_submitted"
+AS="$TASK_DIR/.agent_stopped"
+PR="$TASK_DIR/.pr_links"
+
+case "$event" in
+  beforeShellExecution)
+    touch "$PS" 2>/dev/null || true
+    rm -f "$AS" 2>/dev/null || true
+    printf '%s\n' '{"continue":true,"permission":"allow"}'
+    ;;
+  beforeSubmitPrompt)
+    touch "$PS" 2>/dev/null || true
+    rm -f "$AS" 2>/dev/null || true
+    printf '%s\n' '{"continue":true}'
+    ;;
+  stop)
+    touch "$AS" 2>/dev/null || true
+    printf '%s\n' '{}'
+    ;;
+  postToolUse)
+    set +e
+    echo "$input" | grep -oE 'https://github\.com/[^"/]+/[^"/]+/pull/[0-9]+' \
+      | grep -vE '/(owner|org|example|user|your-org)/' \
+      | grep -vE '/[^"/]+/(repo|repository|my-repo|your-repo|example)/pull/' >>"$PR" 2>/dev/null
+    set -e
+    printf '%s\n' '{}'
+    ;;
+  *)
+    printf '%s\n' '{}'
+    ;;
+esac

@@ -58,6 +58,7 @@ impl FsStore {
         let scripts: &[(&str, &str)] = &[
             ("ma-task", include_str!("../../scripts/ma-task")),
             ("ma-codex-notify", include_str!("../../scripts/ma-codex-notify")),
+            ("ma-cursor-hooks", include_str!("../../scripts/ma-cursor-hooks")),
         ];
 
         for (name, content) in scripts {
@@ -389,8 +390,7 @@ impl FsStore {
             self.write_gemini_skill(task)?;
         }
 
-        // Write Cursor CLI hooks and skill. Headless `agent --print` runs some
-        // hooks (see `scripts/cursor-hook-verify`) but not `stop` / `beforeSubmitPrompt`.
+        // Write Cursor hooks and skill (`write_cursor_hooks` + `ma-cursor-hooks`).
         if task.agent_cli == crate::domain::task::AgentCli::Cursor {
             self.write_cursor_hooks(task)?;
             self.write_cursor_skill(task)?;
@@ -889,39 +889,53 @@ impl FsStore {
         Ok(())
     }
 
-    /// Write `.cursor/hooks.json` in the task directory for Cursor Agent CLI.
+    /// Write `.cursor/hooks.json` in the task directory for Cursor Agent.
     ///
-    /// **Verification:** Run `scripts/cursor-hook-verify/run-verify.sh` after Cursor
-    /// upgrades. Empirically (`agent --print --trust`, Cursor agent 2026.03.20):
-    /// `sessionStart`/`sessionEnd`/`preToolUse`/`postToolUse`/`beforeShellExecution`/
-    /// `afterShellExecution`/`beforeReadFile` fire; `stop` and `beforeSubmitPrompt`
-    /// do **not** fire in headless mode, so hooks cannot set `.agent_stopped`.
+    /// Uses `~/.my-agents/bin/ma-cursor-hooks <task_dir>` (installed by
+    /// [`Self::install_scripts`]). Markers match Claude Code behaviour:
+    /// - `beforeSubmitPrompt` + `beforeShellExecution`: `.prompt_submitted`, clear `.agent_stopped`
+    /// - `stop`: `.agent_stopped`
+    /// - `postToolUse`: append GitHub PR URLs to `.pr_links`
     ///
-    /// Only `beforeShellExecution` is wired here for Todo → InProgress (touches
-    /// `.prompt_submitted`, clears `.agent_stopped`). Do not add `stop`/`beforeSubmitPrompt`
-    /// based workflows until a verify run shows they fire.
+    /// **Headless** (`agent --print`): `beforeSubmitPrompt`/`stop` do not fire; `beforeShellExecution`
+    /// and `postToolUse` still run. Re-verify with `scripts/cursor-hook-verify/run-verify.sh` after
+    /// Cursor upgrades.
     pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 
         let cursor_dir = task_dir.join(".cursor");
         fs::create_dir_all(&cursor_dir)?;
 
-        let prompt_submitted_path = task_dir.join(".prompt_submitted");
-        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
-        let agent_stopped_path = task_dir.join(".agent_stopped");
-        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
+        let hook_bin = self.bin_dir.join("ma-cursor-hooks");
+        let hook_cmd = format!(
+            "{} {}",
+            shell_escape(&hook_bin.to_string_lossy()),
+            shell_escape(&task_dir.to_string_lossy())
+        );
 
         let hooks = serde_json::json!({
             "version": 1,
             "hooks": {
+                "beforeSubmitPrompt": [
+                    {
+                        "command": hook_cmd,
+                        "matcher": "UserPromptSubmit"
+                    }
+                ],
+                "stop": [
+                    {
+                        "command": hook_cmd,
+                        "matcher": "Stop"
+                    }
+                ],
+                "postToolUse": [
+                    {
+                        "command": hook_cmd
+                    }
+                ],
                 "beforeShellExecution": [
                     {
-                        "type": "command",
-                        "command": format!(
-                            "touch {} && rm -f {}",
-                            shell_escape(&prompt_submitted_path_str),
-                            shell_escape(&agent_stopped_path_str)
-                        )
+                        "command": hook_cmd
                     }
                 ]
             }

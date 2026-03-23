@@ -28,7 +28,7 @@ export CURSOR_HOOK_VERIFY_LOG="$CURSOR_HOOK_VERIFY_DIR/hook-events.log"
 
 ## 結果の読み方
 
-実行後、標準出力に **ユニークな `hook_event_name` 一覧**が出ます。ここに例えば `stop` や `beforeSubmitPrompt` が**無い**場合、その Cursor バージョンの headless (`--print`) 経路では当該フックは使えないと判断し、**my-agents の `write_cursor_hooks` を拡張しない**（別手段を検討する）運用にしてください。
+実行後、標準出力に **ユニークな `hook_event_name` 一覧**が出ます。headless (`--print`) で `stop` / `beforeSubmitPrompt` が出ない場合でも、`write_cursor_hooks` は `beforeShellExecution` と `postToolUse` でフォールバックする。対話モードでの `stop` / `beforeSubmitPrompt` の有無を確認したいときにも使う。
 
 `hook-events.log` には各発火のタイムスタンプと JSON 1 行が残ります。
 
