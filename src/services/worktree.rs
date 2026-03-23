@@ -3,6 +3,13 @@ use crate::error::AppResult;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// Maximum number of retry attempts for git commands that may fail due to
+/// transient issues (e.g. lock files held by concurrent git processes).
+const MAX_RETRIES: u32 = 3;
+
+/// Delay between retry attempts in milliseconds.
+const RETRY_DELAY_MS: u64 = 1000;
+
 /// Run a git command with stdout/stderr captured (not leaked to the TUI).
 /// Returns the captured stderr on failure for diagnostics.
 fn run_git(upstream_repo: &Path, args: &[&str]) -> AppResult<()> {
@@ -23,6 +30,35 @@ fn run_git(upstream_repo: &Path, args: &[&str]) -> AppResult<()> {
         );
     }
     Ok(())
+}
+
+/// Run a git command with retries for transient failures (e.g. lock contention).
+fn run_git_with_retry(upstream_repo: &Path, args: &[&str]) -> AppResult<()> {
+    let mut last_err = None;
+    for attempt in 0..MAX_RETRIES {
+        match run_git(upstream_repo, args) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let err_msg = e.to_string();
+                // Retry on lock-related errors
+                if err_msg.contains("Unable to create")
+                    && err_msg.contains(".lock")
+                    || err_msg.contains("Another git process seems to be running")
+                {
+                    if attempt + 1 < MAX_RETRIES {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            RETRY_DELAY_MS * (attempt as u64 + 1),
+                        ));
+                        last_err = Some(e);
+                        continue;
+                    }
+                }
+                last_err = Some(e);
+                break;
+            }
+        }
+    }
+    Err(last_err.unwrap())
 }
 
 /// Run a git command and capture stdout.
@@ -71,6 +107,19 @@ fn detect_remote_default_branch(upstream_repo: &Path) -> AppResult<String> {
     );
 }
 
+/// Log a worktree error to a diagnostic file for post-mortem analysis.
+pub fn log_worktree_error(task_dir: &Path, message: &str) {
+    let log_path = task_dir.join(".worktree_error.log");
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let entry = format!("[{}] {}\n", timestamp, message);
+    // Append to existing log file or create new one
+    if let Ok(existing) = std::fs::read_to_string(&log_path) {
+        let _ = std::fs::write(&log_path, format!("{}{}", existing, entry));
+    } else {
+        let _ = std::fs::write(&log_path, entry);
+    }
+}
+
 pub struct WorktreeService;
 
 impl WorktreeService {
@@ -103,7 +152,7 @@ impl WorktreeService {
         };
         let start_point = start_point.as_deref().unwrap_or("HEAD");
 
-        run_git(
+        run_git_with_retry(
             upstream_repo,
             &[
                 "worktree",
@@ -194,6 +243,13 @@ impl WorktreeService {
             let branch = task_id[..task_id.len().min(6)].to_string();
 
             if let Err(e) = self.add_worktree(upstream_path, &worktree_path, &branch) {
+                log_worktree_error(
+                    task_dir,
+                    &format!(
+                        "add_worktree failed for repo={}, branch={}, upstream={:?}, target={:?}: {}",
+                        repo_name, branch, upstream_path, worktree_path, e
+                    ),
+                );
                 // Rollback previously created worktrees
                 for wt in &worktrees {
                     let _ = self.remove_worktree(wt);

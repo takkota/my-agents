@@ -1,7 +1,7 @@
 use crate::domain::project::Project;
 use crate::domain::task::{AgentCli, Task, WorktreeInfo};
 use crate::services::tmux::TmuxService;
-use crate::services::worktree::WorktreeService;
+use crate::services::worktree::{self, WorktreeService};
 use crate::storage::FsStore;
 use std::path::{Path, PathBuf};
 
@@ -88,10 +88,9 @@ pub fn run_task_setup(
                 let mut checked_out = Vec::new();
                 for wt in wts {
                     if let Err(e) = WorktreeService::checkout_worktree(&wt.worktree_path, &wt.branch) {
-                        append_error(
-                            &mut error_msg,
-                            &format!("Worktree checkout failed for {}: {}", wt.repo_name, e),
-                        );
+                        let msg = format!("Worktree checkout failed for {}: {}", wt.repo_name, e);
+                        append_error(&mut error_msg, &msg);
+                        worktree::log_worktree_error(input.task_dir, &msg);
                         let _ = worktree_svc.remove_worktree(&wt);
                     } else {
                         checked_out.push(wt);
