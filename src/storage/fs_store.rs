@@ -389,9 +389,11 @@ impl FsStore {
             self.write_gemini_skill(task)?;
         }
 
-        // Write Cursor CLI skill (no hooks — Cursor CLI does not support
-        // hooks in CLI mode for status tracking or PR link discovery)
+        // Write Cursor CLI hooks and skill. Cursor CLI only supports a subset
+        // of hooks in CLI mode (beforeShellExecution/afterShellExecution work;
+        // beforeSubmitPrompt/stop/postToolUse do not).
         if task.agent_cli == crate::domain::task::AgentCli::Cursor {
+            self.write_cursor_hooks(task)?;
             self.write_cursor_skill(task)?;
         }
 
@@ -882,6 +884,46 @@ impl FsStore {
         fs::write(
             gemini_dir.join("settings.json"),
             serde_json::to_string_pretty(&settings)?,
+        )?;
+
+        Ok(())
+    }
+
+    /// Write `.cursor/hooks.json` in the task directory with hooks that
+    /// work in Cursor CLI mode. Only `beforeShellExecution` is used to
+    /// detect agent activity (creates `.prompt_submitted` marker, triggering
+    /// Todo → InProgress). The `stop` and `beforeSubmitPrompt` hooks do NOT
+    /// fire in CLI mode, so `.agent_stopped` marker is not created by hooks.
+    pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+
+        let cursor_dir = task_dir.join(".cursor");
+        fs::create_dir_all(&cursor_dir)?;
+
+        let prompt_submitted_path = task_dir.join(".prompt_submitted");
+        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
+        let agent_stopped_path = task_dir.join(".agent_stopped");
+        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
+
+        let hooks = serde_json::json!({
+            "version": 1,
+            "hooks": {
+                "beforeShellExecution": [
+                    {
+                        "type": "command",
+                        "command": format!(
+                            "touch {} && rm -f {}",
+                            shell_escape(&prompt_submitted_path_str),
+                            shell_escape(&agent_stopped_path_str)
+                        )
+                    }
+                ]
+            }
+        });
+
+        fs::write(
+            cursor_dir.join("hooks.json"),
+            serde_json::to_string_pretty(&hooks)?,
         )?;
 
         Ok(())
