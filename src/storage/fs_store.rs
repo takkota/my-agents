@@ -389,9 +389,8 @@ impl FsStore {
             self.write_gemini_skill(task)?;
         }
 
-        // Write Cursor CLI hooks and skill. Cursor CLI only supports a subset
-        // of hooks in CLI mode (beforeShellExecution/afterShellExecution work;
-        // beforeSubmitPrompt/stop/postToolUse do not).
+        // Write Cursor CLI hooks and skill. Headless `agent --print` runs some
+        // hooks (see `scripts/cursor-hook-verify`) but not `stop` / `beforeSubmitPrompt`.
         if task.agent_cli == crate::domain::task::AgentCli::Cursor {
             self.write_cursor_hooks(task)?;
             self.write_cursor_skill(task)?;
@@ -890,11 +889,17 @@ impl FsStore {
         Ok(())
     }
 
-    /// Write `.cursor/hooks.json` in the task directory with hooks that
-    /// work in Cursor CLI mode. Only `beforeShellExecution` is used to
-    /// detect agent activity (creates `.prompt_submitted` marker, triggering
-    /// Todo → InProgress). The `stop` and `beforeSubmitPrompt` hooks do NOT
-    /// fire in CLI mode, so `.agent_stopped` marker is not created by hooks.
+    /// Write `.cursor/hooks.json` in the task directory for Cursor Agent CLI.
+    ///
+    /// **Verification:** Run `scripts/cursor-hook-verify/run-verify.sh` after Cursor
+    /// upgrades. Empirically (`agent --print --trust`, Cursor agent 2026.03.20):
+    /// `sessionStart`/`sessionEnd`/`preToolUse`/`postToolUse`/`beforeShellExecution`/
+    /// `afterShellExecution`/`beforeReadFile` fire; `stop` and `beforeSubmitPrompt`
+    /// do **not** fire in headless mode, so hooks cannot set `.agent_stopped`.
+    ///
+    /// Only `beforeShellExecution` is wired here for Todo → InProgress (touches
+    /// `.prompt_submitted`, clears `.agent_stopped`). Do not add `stop`/`beforeSubmitPrompt`
+    /// based workflows until a verify run shows they fire.
     pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 

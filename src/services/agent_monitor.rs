@@ -43,7 +43,8 @@ impl AgentMonitor {
             }
 
             // PR link discovery — Claude uses PostToolUse hook, Gemini uses AfterTool hook.
-            // Cursor CLI does not support hooks in CLI mode, so PR links are not auto-discovered.
+            // Cursor: `postToolUse` fires under `agent --print` (see scripts/cursor-hook-verify),
+            // but we do not wire PR grep in `write_cursor_hooks` yet; keep monitor aligned with that.
             if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Gemini) {
                 let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
                 events.extend(link_events);
