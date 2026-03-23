@@ -364,7 +364,7 @@ impl Modal for CreateProjectModal {
         if self.pm_enabled {
             constraints.push(Constraint::Min(10));  // Repos (flexible)
             constraints.push(Constraint::Length(1)); // PM toggle
-            constraints.push(Constraint::Length(5)); // PM Agent CLI
+            constraints.push(Constraint::Length(6)); // PM Agent CLI (4 items + 2 border)
             constraints.push(Constraint::Length(3)); // PM Cron
             constraints.push(Constraint::Min(3));   // PM Custom Instructions
         } else {
