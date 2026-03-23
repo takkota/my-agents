@@ -19,7 +19,7 @@ AIコーディングエージェント向けのTUIベースTODOリスト管理�
 - **Agent状態監視** - エージェントの入力待ち状態を検知してステータスを自動更新
 - **PRマージ監視** - GitHub PRのマージを検知してタスクを自動完了
 - **CLAUDE.md/AGENTS.md/GEMINI.md参照** - worktree作成時に設定ファイルへの参照を自動生成
-- **Agent Skills** - Claude Code (`.claude/skills/`) / Codex (`.agents/skills/`) / Cursor (`.cursor/skills/`) / Gemini CLI (GEMINI.md) 対応のスキルファイルを自動生成。エージェントが `ma-task` CLIでタスク管理可能
+- **Agent Skills** - Claude Code (`.claude/skills/`) / Codex (`.agents/skills/`) / Gemini CLI (`.gemini/skills/`) / Cursor (`.cursor/skills/`) 対応のスキルファイルを自動生成。エージェントが `ma-task` CLIでタスク管理可能
 - **Cursor hooks** - `.cursor/hooks.json` による自動ステータス追跡・PRリンク検出
 - **ma-task CLI** - エージェント向けタスク管理CLI。ステータス更新・リンク追加・タスク作成・既存タスク実行・タスク削除等をJSON出力で提供
 
