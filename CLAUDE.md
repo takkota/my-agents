@@ -50,7 +50,7 @@ When creating agent sessions, `write_agent_config_files()` generates:
 - **Claude hooks** — `.claude/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks for auto status tracking and PR link discovery
 - **Gemini hooks** — `.gemini/settings.json` with `BeforeAgent`, `AfterAgent`, and `AfterTool` hooks
 - **Codex notify** — writes `.codex/config.toml` in the task directory with `notify` pointing to `ma-codex-notify` (project-level config, no global config modification)
-- **Cursor hooks** — `.cursor/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks (same format as Claude Code)
+- **Cursor hooks** — `.cursor/hooks.json` with `beforeSubmitPrompt`, `stop`, and `postToolUse` hooks (Cursor-native format; note: `beforeSubmitPrompt` and `stop` do not fire in CLI mode as of current Cursor version)
 - All agent skills share the same body via `skill_body()` helper, differing only in frontmatter and directory placement
 
 ### Services (services/)

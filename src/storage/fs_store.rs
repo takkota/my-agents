@@ -887,9 +887,19 @@ impl FsStore {
         Ok(())
     }
 
-    /// Write `.cursor/settings.json` in the task directory with hooks that
-    /// support task management. Mirrors Claude Code's hook structure as
-    /// Cursor CLI supports the same hook format.
+    /// Write `.cursor/hooks.json` in the task directory with hooks that
+    /// support task management. Uses Cursor's native hook format which differs
+    /// from Claude Code:
+    /// - File: `.cursor/hooks.json` (not `settings.json`)
+    /// - Event names: camelCase (`beforeSubmitPrompt`, `stop`, `postToolUse`)
+    /// - Top-level `version` field required
+    /// - Flat array of hook objects per event (no nested `hooks` array)
+    ///
+    /// Note: As of Cursor CLI, `beforeSubmitPrompt` and `stop` hooks do NOT
+    /// fire in CLI mode — only tool-related hooks work. Status tracking via
+    /// marker files (`.prompt_submitted` / `.agent_stopped`) is included for
+    /// forward compatibility but may not function until Cursor fixes CLI hooks.
+    /// PR link discovery via `postToolUse` works correctly.
     pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 
@@ -903,85 +913,43 @@ impl FsStore {
         let agent_stopped_path = task_dir.join(".agent_stopped");
         let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
 
-        let mut settings = serde_json::json!({
+        let hooks = serde_json::json!({
+            "version": 1,
             "hooks": {
-                "UserPromptSubmit": [
+                "beforeSubmitPrompt": [
                     {
-                        "matcher": "",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!(
-                                    "touch {} && rm -f {}",
-                                    shell_escape(&prompt_submitted_path_str),
-                                    shell_escape(&agent_stopped_path_str)
-                                )
-                            }
-                        ]
+                        "type": "command",
+                        "command": format!(
+                            "touch {} && rm -f {}",
+                            shell_escape(&prompt_submitted_path_str),
+                            shell_escape(&agent_stopped_path_str)
+                        )
                     }
                 ],
-                "Stop": [
+                "stop": [
                     {
-                        "matcher": "",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!(
-                                    "touch {}",
-                                    shell_escape(&agent_stopped_path_str)
-                                )
-                            }
-                        ]
+                        "type": "command",
+                        "command": format!(
+                            "touch {}",
+                            shell_escape(&agent_stopped_path_str)
+                        )
                     }
                 ],
-                "PostToolUse": [
+                "postToolUse": [
                     {
-                        "matcher": "",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!(
-                                    "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' | grep -vE '/(owner|org|example|user|your-org)/' | grep -vE '/[^\"/]+/(repo|repository|my-repo|your-repo|example)/pull/' >> {} || true",
-                                    shell_escape(&pr_links_path_str)
-                                )
-                            }
-                        ]
+                        "type": "command",
+                        "command": format!(
+                            "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' | grep -vE '/(owner|org|example|user|your-org)/' | grep -vE '/[^\"/]+/(repo|repository|my-repo|your-repo|example)/pull/' >> {} || true",
+                            shell_escape(&pr_links_path_str)
+                        )
                     }
                 ]
             }
         });
 
-        // Merge allowed settings from project-level .cursor/settings.json
-        const ALLOWED_PROJECT_KEYS: &[&str] = &["enabledPlugins"];
-
-        let project_settings_path = self
-            .project_dir(&task.project_id)
-            .join(".cursor")
-            .join("settings.json");
-        if project_settings_path.exists() {
-            match fs::read_to_string(&project_settings_path) {
-                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
-                    Ok(project_settings) => {
-                        if let Some(project_obj) = project_settings.as_object() {
-                            let Some(settings_obj) = settings.as_object_mut() else {
-                                return Ok(());
-                            };
-                            for key in ALLOWED_PROJECT_KEYS {
-                                if let Some(value) = project_obj.get(*key) {
-                                    settings_obj.insert((*key).to_string(), value.clone());
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {}
-                },
-                Err(_) => {}
-            }
-        }
-
         fs::write(
-            cursor_dir.join("settings.json"),
-            serde_json::to_string_pretty(&settings)?,
+            cursor_dir.join("hooks.json"),
+            serde_json::to_string_pretty(&hooks)?,
         )?;
 
         Ok(())
