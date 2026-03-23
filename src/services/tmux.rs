@@ -161,7 +161,7 @@ impl TmuxService {
                 let cmd_output = String::from_utf8_lossy(&o.stdout);
                 let foreground = cmd_output.lines().next().unwrap_or("").trim();
                 // Only match exact agent CLI binary names
-                foreground == "claude" || foreground == "codex" || foreground == "gemini"
+                foreground == "claude" || foreground == "codex" || foreground == "gemini" || foreground == "agent"
             }
             _ => false,
         }

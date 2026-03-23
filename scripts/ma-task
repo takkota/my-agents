@@ -772,17 +772,19 @@ cmd_prompt() {
         # Agent CLIs may run via wrapper scripts, so also check pane processes via pane_pid
         local agent_running=false
         if [ -n "$pane_cmd" ]; then
-            # Direct match on pane foreground command
-            if [[ "$pane_cmd" == *"$expected_cmd"* ]]; then
+            # Exact match on pane foreground command to avoid false positives
+            # (e.g. "agent" matching "ssh-agent")
+            if [ "$pane_cmd" = "$expected_cmd" ]; then
                 agent_running=true
             fi
         fi
         if [ "$agent_running" = false ]; then
             # Fallback: check if the expected process exists in the pane's process tree
+            # Use word-boundary match (-w) to avoid partial matches
             local pane_pid
             pane_pid="$(tmux display-message -t "$tmux_session" -p '#{pane_pid}' 2>/dev/null || true)"
             if [ -n "$pane_pid" ]; then
-                if pgrep -P "$pane_pid" -a 2>/dev/null | grep -q "$expected_cmd"; then
+                if pgrep -P "$pane_pid" -a 2>/dev/null | grep -qw "$expected_cmd"; then
                     agent_running=true
                 fi
             fi
@@ -854,7 +856,7 @@ Update options:
   --priority <P1-P5>    New priority
   --notes <text>        New notes
   --prompt <text>       Update initial instructions
-  --agent <cli>         Agent CLI: Claude, Codex, Gemini, None
+  --agent <cli>         Agent CLI: Claude, Codex, Gemini, Cursor, None
 
 Prompt options:
   --stdin               Read prompt text from stdin (for multiline input)
