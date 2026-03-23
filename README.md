@@ -4,7 +4,7 @@
 
 AIコーディングエージェント向けのTUIベースTODOリスト管理ツール。
 
-複数のAIエージェントセッション（Claude Code / Codex / Gemini CLI）を一元管理し、プロジェクト単位でタスクを整理できます。
+複数のAIエージェントセッション（Claude Code / Codex / Gemini CLI / Cursor CLI）を一元管理し、プロジェクト単位でタスクを整理できます。
 
 ## Features
 
@@ -12,14 +12,15 @@ AIコーディングエージェント向けのTUIベースTODOリスト管理�
 - **tmuxセッション統合** - タスクごとにtmuxセッションを自動作成、ワンキーでattach/detach
 - **セッションプレビュー** - メイン画面右側で選択タスクのtmuxセッション内容をリアルタイム表示
 - **git worktree管理** - タスクごとに複数リポジトリのworktreeを自動作成・クリーンアップ
-- **Agent CLI起動** - タスク作成時にClaude Code / Codex / Gemini CLIを自動起動
+- **Agent CLI起動** - タスク作成時にClaude Code / Codex / Gemini CLI / Cursor CLIを自動起動
 - **ステータス管理** - Todo / In Progress / Action Required / Completed / Blocked
 - **リンク管理** - GitHub Issue/PRのURLを紐付け、自動で見やすい表示名を生成
 - **フィルタ/ソート** - ステータスフィルタ、作成日・更新日・Priority順ソート
 - **Agent状態監視** - エージェントの入力待ち状態を検知してステータスを自動更新
 - **PRマージ監視** - GitHub PRのマージを検知してタスクを自動完了
 - **CLAUDE.md/AGENTS.md/GEMINI.md参照** - worktree作成時に設定ファイルへの参照を自動生成
-- **Agent Skills** - Claude Code (`.claude/skills/`) / Codex (`.agents/skills/`) 両対応のスキルファイルを自動生成。Gemini CLIはGEMINI.mdで指示を提供。エージェントが `ma-task` CLIでタスク管理可能
+- **Agent Skills** - Claude Code (`.claude/skills/`) / Codex (`.agents/skills/`) / Cursor (`.cursor/skills/`) / Gemini CLI (GEMINI.md) 対応のスキルファイルを自動生成。エージェントが `ma-task` CLIでタスク管理可能
+- **Cursor hooks** - `.cursor/hooks.json` による自動ステータス追跡・PRリンク検出
 - **ma-task CLI** - エージェント向けタスク管理CLI。ステータス更新・リンク追加・タスク作成・既存タスク実行・タスク削除等をJSON出力で提供
 
 ## Requirements
@@ -115,7 +116,8 @@ my-agents
 ├── config.toml                          # 設定ファイル
 ├── bin/
 │   ├── ma-task                          # エージェント向けタスク管理CLI
-│   └── ma-codex-notify                  # Codex notify イベントハンドラ
+│   ├── ma-codex-notify                  # Codex notify イベントハンドラ
+│   └── ma-cursor-hooks                  # Cursor hooks イベントハンドラ
 └── projects/
     └── {project_name}/
         ├── project.json                 # プロジェクトメタデータ
@@ -124,6 +126,7 @@ my-agents
                 ├── task.json            # タスクメタデータ
                 ├── CLAUDE.md            # @repo/CLAUDE.md 参照 + スキルトリガー
                 ├── AGENTS.md            # @repo/AGENTS.md 参照 + スキルトリガー
+                ├── GEMINI.md            # @repo/GEMINI.md 参照 + スキルトリガー
                 ├── .claude/
                 │   ├── settings.json    # Claude Code hooks設定
                 │   └── skills/
@@ -133,8 +136,18 @@ my-agents
                 │   └── skills/
                 │       └── task-management/
                 │           └── SKILL.md # Codex用スキル
+                ├── .gemini/
+                │   ├── settings.json    # Gemini CLI hooks設定
+                │   └── skills/
+                │       └── task-management/
+                │           └── SKILL.md # Gemini CLI用スキル
                 ├── .codex/
                 │   └── config.toml      # Codex notify設定
+                ├── .cursor/
+                │   ├── hooks.json       # Cursor hooks設定
+                │   └── skills/
+                │       └── task-management/
+                │           └── SKILL.md # Cursor用スキル
                 └── {repo_name}/         # git worktree
 ```
 
@@ -162,7 +175,7 @@ tmux kill-server
 `~/.my-agents/config.toml`:
 
 ```toml
-# デフォルトのAgent CLI (Claude / Codex / Gemini / None)
+# デフォルトのAgent CLI (Claude / Codex / Gemini / Cursor / None)
 default_agent_cli = "Claude"
 
 # Tick間隔 (ms)
