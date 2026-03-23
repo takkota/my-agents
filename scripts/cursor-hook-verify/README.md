@@ -39,12 +39,17 @@ export CURSOR_HOOK_VERIFY_LOG="$CURSOR_HOOK_VERIFY_DIR/hook-events.log"
 
 ## 実測メモ（参考）
 
-次の環境で `run-verify.sh` およびツール利用プロンプトを試した結果の例です。バージョンが変われば必ず再実行してください。
+次の環境で `run-verify.sh` および追加プロンプトを試した結果の例です。バージョンが変われば必ず再実行してください。
 
 | Cursor agent ビルド | `agent --print --trust` で観測されたイベント |
 |---------------------|---------------------------------------------|
 | `2026.03.20-44cb435` | `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `beforeReadFile`, `beforeShellExecution`, `afterShellExecution` |
-| 同上 | **`stop`, `beforeSubmitPrompt` は発火せず** |
+| 同上 | **`stop`, `beforeSubmitPrompt`, `afterAgentResponse`, `afterAgentThought` は発火せず**（ツールなしの短文応答・read 後の応答のいずれでもログに現れない） |
+
+### `sessionStart` / `afterAgentResponse` をステータスに使えるか
+
+- **`sessionStart` → InProgress:** イベントは発火する。ただし **セッション開始 1 回につき 1 回**であり、同一セッション内の 2 通目以降のユーザーメッセージでは再発火しない想定（Claude の `UserPromptSubmit` 相当ではない）。
+- **`afterAgentResponse` → ActionRequired:** 上記のとおり **headless では検証上発火しない**ため、この組み合わせでは **ActionRequired へ自動遷移は現状できない**。
 
 ## 参考
 
