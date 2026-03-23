@@ -336,6 +336,40 @@ impl FsStore {
             fs::write(dir.join("AGENTS.md"), agents_lines.join("\n") + "\n")?;
         }
 
+        // Write .cursorrules with references and skill trigger
+        if task.agent_cli == crate::domain::task::AgentCli::Cursor {
+            let mut cursor_lines: Vec<String> = task
+                .worktrees
+                .iter()
+                .filter_map(|wt| {
+                    // Include upstream CLAUDE.md if it exists (Cursor can read these)
+                    let claude_md = wt.upstream_path.join("CLAUDE.md");
+                    if claude_md.exists() {
+                        Some(format!("@{}/CLAUDE.md", wt.repo_name))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            cursor_lines.push(String::new());
+            cursor_lines.push("## Task Management".to_string());
+            cursor_lines.push(format!(
+                "This session is managed by my-agents. Task ID: `{}`, Project: `{}`.",
+                task.id, task.project_id
+            ));
+            cursor_lines.push(
+                "Use the `/task-management` skill when you need to check task details, \
+                 update status, add links, or create new tasks."
+                    .to_string(),
+            );
+            if !pr_prompt.trim().is_empty() {
+                cursor_lines.push(String::new());
+                cursor_lines.push("## Pull Request".to_string());
+                cursor_lines.push(pr_prompt.to_string());
+            }
+            fs::write(dir.join(".cursorrules"), cursor_lines.join("\n") + "\n")?;
+        }
+
         // Write Claude Code hooks config and skill for Claude agent tasks
         if task.agent_cli == crate::domain::task::AgentCli::Claude {
             self.write_claude_hooks(task)?;
@@ -353,6 +387,14 @@ impl FsStore {
         if task.agent_cli == crate::domain::task::AgentCli::Gemini {
             self.write_gemini_hooks(task)?;
             self.write_gemini_skill(task)?;
+        }
+
+        // Write Cursor CLI hooks and skill. Cursor CLI only supports a subset
+        // of hooks in CLI mode (beforeShellExecution/afterShellExecution work;
+        // beforeSubmitPrompt/stop/postToolUse do not).
+        if task.agent_cli == crate::domain::task::AgentCli::Cursor {
+            self.write_cursor_hooks(task)?;
+            self.write_cursor_skill(task)?;
         }
 
         // Write dev-environment skill if project has dev_environment_prompt
@@ -393,6 +435,18 @@ impl FsStore {
                 };
                 content.push_str("\n## Dev Environment\nUse the dev-environment skill to start the development server and register preview URLs.\n");
                 fs::write(&gemini_md_path, content)?;
+            }
+            if task.agent_cli == crate::domain::task::AgentCli::Cursor {
+                Self::write_dev_env_skill_cursor(&dir, task, prompt)?;
+                // Append dev-environment skill reference to .cursorrules
+                let cursorrules_path = dir.join(".cursorrules");
+                let mut content = if cursorrules_path.exists() {
+                    fs::read_to_string(&cursorrules_path)?
+                } else {
+                    String::new()
+                };
+                content.push_str("\n## Dev Environment\nUse the `/dev-environment` skill to start the development server and register preview URLs.\n");
+                fs::write(&cursorrules_path, content)?;
             }
         }
 
@@ -532,6 +586,14 @@ impl FsStore {
             let task_gemini_skills = task_dir.join(".gemini").join("skills");
             fs::create_dir_all(&task_gemini_skills)?;
             Self::copy_skills_dir(&project_gemini_skills, &task_gemini_skills)?;
+        }
+
+        // Cursor CLI skills: .cursor/skills/
+        let project_cursor_skills = project_dir.join(".cursor").join("skills");
+        if project_cursor_skills.is_dir() {
+            let task_cursor_skills = task_dir.join(".cursor").join("skills");
+            fs::create_dir_all(&task_cursor_skills)?;
+            Self::copy_skills_dir(&project_cursor_skills, &task_cursor_skills)?;
         }
 
         Ok(())
@@ -827,6 +889,46 @@ impl FsStore {
         Ok(())
     }
 
+    /// Write `.cursor/hooks.json` in the task directory with hooks that
+    /// work in Cursor CLI mode. Only `beforeShellExecution` is used to
+    /// detect agent activity (creates `.prompt_submitted` marker, triggering
+    /// Todo → InProgress). The `stop` and `beforeSubmitPrompt` hooks do NOT
+    /// fire in CLI mode, so `.agent_stopped` marker is not created by hooks.
+    pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+
+        let cursor_dir = task_dir.join(".cursor");
+        fs::create_dir_all(&cursor_dir)?;
+
+        let prompt_submitted_path = task_dir.join(".prompt_submitted");
+        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
+        let agent_stopped_path = task_dir.join(".agent_stopped");
+        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
+
+        let hooks = serde_json::json!({
+            "version": 1,
+            "hooks": {
+                "beforeShellExecution": [
+                    {
+                        "type": "command",
+                        "command": format!(
+                            "touch {} && rm -f {}",
+                            shell_escape(&prompt_submitted_path_str),
+                            shell_escape(&agent_stopped_path_str)
+                        )
+                    }
+                ]
+            }
+        });
+
+        fs::write(
+            cursor_dir.join("hooks.json"),
+            serde_json::to_string_pretty(&hooks)?,
+        )?;
+
+        Ok(())
+    }
+
     /// Copy `.claude/settings.local.json` from the project directory to the
     /// task directory so that project-local settings (e.g. plugin
     /// configurations not committed to version control) are inherited.
@@ -932,7 +1034,7 @@ ma-task list --project {project_id}
 ### Create a new task
 
 ```bash
-ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|Gemini|None]
+ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|Gemini|Cursor|None]
 ```
 
 ### Update task fields
@@ -1031,6 +1133,29 @@ ma-task projects
              name: task-management\n\
              description: \"Use when you need to check your task details, update task status, \
              add links (PR/issue URLs), or create/list tasks in the project.\"\n\
+             ---\n\n{}",
+            Self::skill_body(task),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
+    /// Write `.cursor/skills/task-management/SKILL.md` in the task directory for Cursor CLI.
+    fn write_cursor_skill(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+        let skill_dir = task_dir
+            .join(".cursor")
+            .join("skills")
+            .join("task-management");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: task-management\n\
+             description: \"Use when you need to check your task details, update task status, \
+             add links (PR/issue URLs), or create/list tasks in the project.\"\n\
+             allowed-tools: Bash\n\
              ---\n\n{}",
             Self::skill_body(task),
         );
@@ -1139,6 +1264,27 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
         Ok(())
     }
 
+    /// Write `.cursor/skills/dev-environment/SKILL.md` in the task directory for Cursor CLI.
+    fn write_dev_env_skill_cursor(dir: &std::path::Path, task: &Task, prompt: &str) -> AppResult<()> {
+        let skill_dir = dir
+            .join(".cursor")
+            .join("skills")
+            .join("dev-environment");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: dev-environment\n\
+             description: \"Use to start the development environment and register preview URLs for this project.\"\n\
+             allowed-tools: Bash\n\
+             ---\n\n{}",
+            Self::dev_env_skill_body(task, prompt),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
     // PM (Project Manager) methods
 
     pub fn pm_dir(&self, project_id: &str) -> PathBuf {
@@ -1214,6 +1360,23 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                 );
                 fs::write(skill_dir.join("SKILL.md"), skill_md)?;
             }
+            crate::domain::task::AgentCli::Cursor => {
+                // Write .cursorrules to project dir
+                fs::write(project_dir.join(".cursorrules"), &pm_config_body)?;
+
+                // Write PM skill to project dir
+                let skill_dir = project_dir.join(".cursor").join("skills").join("pm-manager");
+                fs::create_dir_all(&skill_dir)?;
+                let skill_md = format!(
+                    "---\n\
+                     name: pm-manager\n\
+                     description: \"Use to check project task progress, analyze agent sessions, and provide status reports with recommendations.\"\n\
+                     allowed-tools: Bash\n\
+                     ---\n\n{}",
+                    pm_skill,
+                );
+                fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+            }
             crate::domain::task::AgentCli::None => {}
         }
 
@@ -1254,6 +1417,11 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                 lines.push("## 開始方法".to_string());
                 lines.push(String::new());
                 lines.push("pm-managerスキルを使用してレビューを実行してください。".to_string());
+            }
+            crate::domain::task::AgentCli::Cursor => {
+                lines.push("## 開始方法".to_string());
+                lines.push(String::new());
+                lines.push("`/pm-manager` スキルを使用してレビューを実行してください。".to_string());
             }
             _ => {}
         }

@@ -86,12 +86,13 @@ pub enum AgentCli {
     Claude,
     Codex,
     Gemini,
+    Cursor,
     None,
 }
 
 impl AgentCli {
     pub fn all() -> &'static [AgentCli] {
-        &[AgentCli::Claude, AgentCli::Codex, AgentCli::Gemini, AgentCli::None]
+        &[AgentCli::Claude, AgentCli::Codex, AgentCli::Gemini, AgentCli::Cursor, AgentCli::None]
     }
 
     pub fn command(&self) -> Option<&'static str> {
@@ -99,6 +100,7 @@ impl AgentCli {
             AgentCli::Claude => Some("claude"),
             AgentCli::Codex => Some("codex"),
             AgentCli::Gemini => Some("gemini"),
+            AgentCli::Cursor => Some("agent"),
             AgentCli::None => None,
         }
     }
@@ -108,6 +110,7 @@ impl AgentCli {
         self.command().map(|cmd| match self {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo", cmd),
+            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo", cmd),
             _ => cmd.to_string(),
         })
     }
@@ -119,6 +122,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions -p", cmd),
             AgentCli::Codex => format!("{} -q", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo -p", cmd),
+            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo -p", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -129,6 +133,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue -p", cmd),
             AgentCli::Codex => format!("{} -q", cmd), // Codex -q doesn't support resume
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume -p", cmd),
+            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo --continue -p", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -141,6 +146,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue", cmd),
             AgentCli::Codex => format!("{} resume --last", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume", cmd),
+            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo --continue", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -152,6 +158,7 @@ impl fmt::Display for AgentCli {
             AgentCli::Claude => write!(f, "Claude Code"),
             AgentCli::Codex => write!(f, "Codex"),
             AgentCli::Gemini => write!(f, "Gemini CLI"),
+            AgentCli::Cursor => write!(f, "Cursor"),
             AgentCli::None => write!(f, "None"),
         }
     }

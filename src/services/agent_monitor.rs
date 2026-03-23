@@ -34,7 +34,7 @@ impl AgentMonitor {
 
         for task in &tasks {
             match task.agent_cli {
-                AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini => {
+                AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini | AgentCli::Cursor => {
                     if let Some(e) = self.check_agent_task(&task.id, &task.project_id, &task.status, &task.tmux_session) {
                         events.push(e);
                     }
@@ -42,7 +42,8 @@ impl AgentMonitor {
                 AgentCli::None => {}
             }
 
-            // PR link discovery — Claude uses PostToolUse hook, Gemini uses AfterTool hook
+            // PR link discovery — Claude uses PostToolUse hook, Gemini uses AfterTool hook.
+            // Cursor CLI does not support hooks in CLI mode, so PR links are not auto-discovered.
             if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Gemini) {
                 let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
                 events.extend(link_events);

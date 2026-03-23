@@ -16,7 +16,7 @@ cargo install --path .     # Install binary as `my-agents`
 
 ## What This Is
 
-A TUI-based task manager for AI coding agents (Claude Code / Codex / Gemini CLI). It manages multiple agent sessions per project, each with its own tmux session and git worktree. Data is stored as JSON files under `~/.my-agents/`.
+A TUI-based task manager for AI coding agents (Claude Code / Codex / Gemini CLI / Cursor). It manages multiple agent sessions per project, each with its own tmux session and git worktree. Data is stored as JSON files under `~/.my-agents/`.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Modals take input priority when active. Ctrl+N/P/F/B/A/E are remapped to arrow/c
 Single enum representing all possible state transitions. Modal `handle_key()` methods return `Action` variants to communicate back to `App`.
 
 ### Domain (domain/)
-- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/Gemini/None), worktrees, links
+- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/Gemini/Cursor/None), worktrees, links
 - `Project` — groups tasks, references git repos (`RepoRef`), configures `worktree_copy_files`
 
 ### Storage (storage/fs_store.rs)
@@ -50,7 +50,8 @@ When creating agent sessions, `write_agent_config_files()` generates:
 - **Claude hooks** — `.claude/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks for auto status tracking and PR link discovery
 - **Gemini hooks** — `.gemini/settings.json` with `BeforeAgent`, `AfterAgent`, and `AfterTool` hooks
 - **Codex notify** — writes `.codex/config.toml` in the task directory with `notify` pointing to `ma-codex-notify` (project-level config, no global config modification)
-- All three agent skills share the same body via `skill_body()` helper, differing only in frontmatter and directory placement
+- **Cursor hooks** — `.cursor/hooks.json` with `beforeShellExecution` hook for Todo → InProgress detection (only hook that works in CLI mode; `stop`/`beforeSubmitPrompt`/`postToolUse` do not fire in CLI)
+- All agent skills share the same body via `skill_body()` helper, differing only in frontmatter and directory placement
 
 ### Services (services/)
 - `TmuxService` — create/kill/attach sessions, capture pane content, launch agent CLI
@@ -79,4 +80,4 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
 - `ma-task` CLI (bash script in `~/.my-agents/bin/`) lets agents manage tasks via JSON commands
 - `ma-codex-notify` script (bash in `~/.my-agents/bin/`) handles Codex `notify` events for automatic status tracking
-- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex, `.gemini/skills/` for Gemini CLI
+- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex, `.gemini/skills/` for Gemini CLI, `.cursor/skills/` for Cursor

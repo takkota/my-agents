@@ -161,7 +161,7 @@ impl TmuxService {
                 let cmd_output = String::from_utf8_lossy(&o.stdout);
                 let foreground = cmd_output.lines().next().unwrap_or("").trim();
                 // Only match exact agent CLI binary names
-                foreground == "claude" || foreground == "codex" || foreground == "gemini"
+                foreground == "claude" || foreground == "codex" || foreground == "gemini" || foreground == "agent"
             }
             _ => false,
         }
@@ -319,7 +319,7 @@ impl TmuxService {
             // Codex treats rapid `send-keys ... Enter` input as a paste burst and may leave the
             // text in the composer instead of submitting it. Bracketed paste avoids that path.
             AgentCli::Codex => self.paste_text_and_submit(session, text),
-            AgentCli::Claude | AgentCli::Gemini | AgentCli::None => self.send_text(session, text),
+            AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor | AgentCli::None => self.send_text(session, text),
         }
     }
 
