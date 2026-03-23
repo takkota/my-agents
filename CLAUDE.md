@@ -40,7 +40,7 @@ Single enum representing all possible state transitions. Modal `handle_key()` me
 ### Storage (storage/fs_store.rs)
 `FsStore` reads/writes JSON files under `~/.my-agents/projects/{project}/tasks/{task_id}/task.json`. No database.
 
-On startup, `install_scripts()` embeds the `ma-task` bash script (via `include_str!`) into `~/.my-agents/bin/`. The script is auto-updated when the binary version changes.
+On startup, `install_scripts()` embeds `ma-task`, `ma-codex-notify`, and `ma-cursor-hooks` (via `include_str!`) into `~/.my-agents/bin/`. Scripts are auto-updated when the embedded content changes.
 
 When creating agent sessions, `write_agent_config_files()` generates:
 - **CLAUDE.md** / **AGENTS.md** / **GEMINI.md** — `@repo/` references to upstream config + skill trigger description
