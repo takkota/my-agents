@@ -389,9 +389,9 @@ impl FsStore {
             self.write_gemini_skill(task)?;
         }
 
-        // Write Cursor CLI hooks config and skill for Cursor agent tasks
+        // Write Cursor CLI skill (no hooks — Cursor CLI does not support
+        // hooks in CLI mode for status tracking or PR link discovery)
         if task.agent_cli == crate::domain::task::AgentCli::Cursor {
-            self.write_cursor_hooks(task)?;
             self.write_cursor_skill(task)?;
         }
 
@@ -882,74 +882,6 @@ impl FsStore {
         fs::write(
             gemini_dir.join("settings.json"),
             serde_json::to_string_pretty(&settings)?,
-        )?;
-
-        Ok(())
-    }
-
-    /// Write `.cursor/hooks.json` in the task directory with hooks that
-    /// support task management. Uses Cursor's native hook format which differs
-    /// from Claude Code:
-    /// - File: `.cursor/hooks.json` (not `settings.json`)
-    /// - Event names: camelCase (`beforeSubmitPrompt`, `stop`, `postToolUse`)
-    /// - Top-level `version` field required
-    /// - Flat array of hook objects per event (no nested `hooks` array)
-    ///
-    /// Note: As of Cursor CLI, `beforeSubmitPrompt` and `stop` hooks do NOT
-    /// fire in CLI mode — only tool-related hooks work. Status tracking via
-    /// marker files (`.prompt_submitted` / `.agent_stopped`) is included for
-    /// forward compatibility but may not function until Cursor fixes CLI hooks.
-    /// PR link discovery via `postToolUse` works correctly.
-    pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
-        let task_dir = self.task_dir(&task.project_id, &task.id);
-
-        let cursor_dir = task_dir.join(".cursor");
-        fs::create_dir_all(&cursor_dir)?;
-
-        let pr_links_path = task_dir.join(".pr_links");
-        let pr_links_path_str = pr_links_path.to_string_lossy();
-        let prompt_submitted_path = task_dir.join(".prompt_submitted");
-        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
-        let agent_stopped_path = task_dir.join(".agent_stopped");
-        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
-
-        let hooks = serde_json::json!({
-            "version": 1,
-            "hooks": {
-                "beforeSubmitPrompt": [
-                    {
-                        "type": "command",
-                        "command": format!(
-                            "touch {} && rm -f {}",
-                            shell_escape(&prompt_submitted_path_str),
-                            shell_escape(&agent_stopped_path_str)
-                        )
-                    }
-                ],
-                "stop": [
-                    {
-                        "type": "command",
-                        "command": format!(
-                            "touch {}",
-                            shell_escape(&agent_stopped_path_str)
-                        )
-                    }
-                ],
-                "postToolUse": [
-                    {
-                        "type": "command",
-                        "command": format!(
-                            "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' | grep -vE '/(owner|org|example|user|your-org)/' | grep -vE '/[^\"/]+/(repo|repository|my-repo|your-repo|example)/pull/' >> {} || true",
-                            shell_escape(&pr_links_path_str)
-                        )
-                    }
-                ]
-            }
-        });
-
-        fs::write(
-            cursor_dir.join("hooks.json"),
-            serde_json::to_string_pretty(&hooks)?,
         )?;
 
         Ok(())

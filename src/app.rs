@@ -184,7 +184,6 @@ impl App {
                 match task.agent_cli {
                     AgentCli::Claude => { let _ = app.store.write_claude_hooks(task); }
                     AgentCli::Gemini => { let _ = app.store.write_gemini_hooks(task); }
-                    AgentCli::Cursor => { let _ = app.store.write_cursor_hooks(task); }
                     _ => {}
                 }
             }
