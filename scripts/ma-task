@@ -210,8 +210,9 @@ cmd_create() {
         Claude|claude) agent_cli="Claude" ;;
         Codex|codex) agent_cli="Codex" ;;
         Gemini|gemini) agent_cli="Gemini" ;;
+        Cursor|cursor) agent_cli="Cursor" ;;
         None|none) agent_cli="None" ;;
-        *) die "invalid agent: ${agent_cli} (use Claude, Codex, Gemini, or None)" ;;
+        *) die "invalid agent: ${agent_cli} (use Claude, Codex, Gemini, Cursor, or None)" ;;
     esac
 
     local task_id now
@@ -327,8 +328,9 @@ cmd_update() {
                     Claude|claude) agent_val="Claude" ;;
                     Codex|codex) agent_val="Codex" ;;
                     Gemini|gemini) agent_val="Gemini" ;;
+                    Cursor|cursor) agent_val="Cursor" ;;
                     None|none) agent_val="None" ;;
-                    *) die "invalid agent: $agent_val (use Claude, Codex, Gemini, or None)" ;;
+                    *) die "invalid agent: $agent_val (use Claude, Codex, Gemini, Cursor, or None)" ;;
                 esac
                 json="$(echo "$json" | jq --arg v "$agent_val" '.agent_cli = $v')"
                 shift 2 ;;
@@ -761,6 +763,7 @@ cmd_prompt() {
         Claude) expected_cmd="claude" ;;
         Codex)  expected_cmd="codex" ;;
         Gemini) expected_cmd="gemini" ;;
+        Cursor) expected_cmd="agent" ;;
     esac
     if [ -n "$expected_cmd" ]; then
         local pane_cmd
@@ -840,7 +843,7 @@ Create options:
   --project, -p <id>    Project ID (auto-detected if in task dir)
   --name, -n <name>     Task name (required)
   --priority <P1-P5>    Priority (default: P3)
-  --agent <cli>         Agent CLI: Claude, Codex, Gemini, None (default: Claude)
+  --agent <cli>         Agent CLI: Claude, Codex, Gemini, Cursor, None (default: Claude)
   --notes <text>        Initial notes
   --prompt <text>       Initial instructions for the agent (required for --run)
   --link <url>          Add a link (repeatable for multiple links)

@@ -319,7 +319,7 @@ impl TmuxService {
             // Codex treats rapid `send-keys ... Enter` input as a paste burst and may leave the
             // text in the composer instead of submitting it. Bracketed paste avoids that path.
             AgentCli::Codex => self.paste_text_and_submit(session, text),
-            AgentCli::Claude | AgentCli::Gemini | AgentCli::None => self.send_text(session, text),
+            AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor | AgentCli::None => self.send_text(session, text),
         }
     }
 

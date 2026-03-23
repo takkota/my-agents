@@ -48,7 +48,7 @@ ma-task create --name <name> [options]
 | `--project` | `-p` | \* | CWD から自動検出 | プロジェクト ID |
 | `--name` | `-n` | Yes | — | タスク名 |
 | `--priority` | — | No | `P3` | `P1` `P2` `P3` `P4` `P5` |
-| `--agent` | — | No | `Claude` | `Claude` `Codex` `Gemini` `None` |
+| `--agent` | — | No | `Claude` | `Claude` `Codex` `Gemini` `Cursor` `None` |
 | `--notes` | — | No | `null` | メモ |
 | `--prompt` | — | `--run` 時は Yes | `null` | エージェントへの初期プロンプト |
 | `--link` | — | No | — | リンク URL (複数回指定可) |
@@ -111,7 +111,7 @@ CWD から自動検出。タスクディレクトリ内で実行する必要が�
 ### update — タスク更新
 
 ```bash
-ma-task update <task-id> [--name <name>] [--priority <P1-P5>] [--notes <text>] [--prompt <text>] [--agent <Claude|Codex|Gemini|None>]
+ma-task update <task-id> [--name <name>] [--priority <P1-P5>] [--notes <text>] [--prompt <text>] [--agent <Claude|Codex|Gemini|Cursor|None>]
 ```
 
 指定フィールドのみ更新。`updated_at` は自動更新。`--prompt` で `initial_instructions` を後から設定・変更できる。
@@ -196,7 +196,7 @@ ma-task prompt <task-id> --stdin
 
 1. タスクに `tmux_session` が設定されていること
 2. tmux セッションが実際に存在すること
-3. エージェントプロセス (`claude`, `codex`, `gemini`) がペイン内で実行中であること
+3. エージェントプロセス (`claude`, `codex`, `gemini`, `agent`) がペイン内で実行中であること
 
 エージェントが起動していない場合はエラーとなる。`ma-task run <task-id>` で先にエージェントを起動すること。
 
@@ -300,7 +300,7 @@ ma-task help
 | `name` | string | タスク名 |
 | `priority` | string | `P1`-`P5` |
 | `status` | string | `Todo` `InProgress` `ActionRequired` `Completed` `Blocked` |
-| `agent_cli` | string | `Claude` `Codex` `Gemini` `None` |
+| `agent_cli` | string | `Claude` `Codex` `Gemini` `Cursor` `None` |
 | `worktrees` | array | `--run` 実行後にセットアップされる worktree 情報 |
 | `links` | array | `{url, display_name}` のリスト |
 | `notes` | string\|null | メモ |
