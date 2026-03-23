@@ -58,6 +58,7 @@ impl FsStore {
         let scripts: &[(&str, &str)] = &[
             ("ma-task", include_str!("../../scripts/ma-task")),
             ("ma-codex-notify", include_str!("../../scripts/ma-codex-notify")),
+            ("ma-cursor-hooks", include_str!("../../scripts/ma-cursor-hooks")),
         ];
 
         for (name, content) in scripts {
@@ -389,9 +390,7 @@ impl FsStore {
             self.write_gemini_skill(task)?;
         }
 
-        // Write Cursor CLI hooks and skill. Cursor CLI only supports a subset
-        // of hooks in CLI mode (beforeShellExecution/afterShellExecution work;
-        // beforeSubmitPrompt/stop/postToolUse do not).
+        // Write Cursor hooks and skill (`write_cursor_hooks` + `ma-cursor-hooks`).
         if task.agent_cli == crate::domain::task::AgentCli::Cursor {
             self.write_cursor_hooks(task)?;
             self.write_cursor_skill(task)?;
@@ -890,33 +889,53 @@ impl FsStore {
         Ok(())
     }
 
-    /// Write `.cursor/hooks.json` in the task directory with hooks that
-    /// work in Cursor CLI mode. Only `beforeShellExecution` is used to
-    /// detect agent activity (creates `.prompt_submitted` marker, triggering
-    /// Todo → InProgress). The `stop` and `beforeSubmitPrompt` hooks do NOT
-    /// fire in CLI mode, so `.agent_stopped` marker is not created by hooks.
+    /// Write `.cursor/hooks.json` in the task directory for Cursor Agent.
+    ///
+    /// Uses `~/.my-agents/bin/ma-cursor-hooks <task_dir>` (installed by
+    /// [`Self::install_scripts`]). Markers match Claude Code behaviour:
+    /// - `beforeSubmitPrompt` + `beforeShellExecution`: `.prompt_submitted`, clear `.agent_stopped`
+    /// - `stop`: `.agent_stopped`
+    /// - `postToolUse`: append GitHub PR URLs to `.pr_links`
+    ///
+    /// **Headless** (`agent --print`): `beforeSubmitPrompt`/`stop` do not fire; `beforeShellExecution`
+    /// and `postToolUse` still run. Re-verify with `scripts/cursor-hook-verify/run-verify.sh` after
+    /// Cursor upgrades.
     pub fn write_cursor_hooks(&self, task: &Task) -> AppResult<()> {
         let task_dir = self.task_dir(&task.project_id, &task.id);
 
         let cursor_dir = task_dir.join(".cursor");
         fs::create_dir_all(&cursor_dir)?;
 
-        let prompt_submitted_path = task_dir.join(".prompt_submitted");
-        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
-        let agent_stopped_path = task_dir.join(".agent_stopped");
-        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
+        let hook_bin = self.bin_dir.join("ma-cursor-hooks");
+        let hook_cmd = format!(
+            "{} {}",
+            shell_escape(&hook_bin.to_string_lossy()),
+            shell_escape(&task_dir.to_string_lossy())
+        );
 
         let hooks = serde_json::json!({
             "version": 1,
             "hooks": {
+                "beforeSubmitPrompt": [
+                    {
+                        "command": hook_cmd,
+                        "matcher": "UserPromptSubmit"
+                    }
+                ],
+                "stop": [
+                    {
+                        "command": hook_cmd,
+                        "matcher": "Stop"
+                    }
+                ],
+                "postToolUse": [
+                    {
+                        "command": hook_cmd
+                    }
+                ],
                 "beforeShellExecution": [
                     {
-                        "type": "command",
-                        "command": format!(
-                            "touch {} && rm -f {}",
-                            shell_escape(&prompt_submitted_path_str),
-                            shell_escape(&agent_stopped_path_str)
-                        )
+                        "command": hook_cmd
                     }
                 ]
             }

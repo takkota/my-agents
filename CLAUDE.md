@@ -40,7 +40,7 @@ Single enum representing all possible state transitions. Modal `handle_key()` me
 ### Storage (storage/fs_store.rs)
 `FsStore` reads/writes JSON files under `~/.my-agents/projects/{project}/tasks/{task_id}/task.json`. No database.
 
-On startup, `install_scripts()` embeds the `ma-task` bash script (via `include_str!`) into `~/.my-agents/bin/`. The script is auto-updated when the binary version changes.
+On startup, `install_scripts()` embeds `ma-task`, `ma-codex-notify`, and `ma-cursor-hooks` (via `include_str!`) into `~/.my-agents/bin/`. Scripts are auto-updated when the embedded content changes.
 
 When creating agent sessions, `write_agent_config_files()` generates:
 - **CLAUDE.md** / **AGENTS.md** / **GEMINI.md** — `@repo/` references to upstream config + skill trigger description
@@ -50,7 +50,7 @@ When creating agent sessions, `write_agent_config_files()` generates:
 - **Claude hooks** — `.claude/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks for auto status tracking and PR link discovery
 - **Gemini hooks** — `.gemini/settings.json` with `BeforeAgent`, `AfterAgent`, and `AfterTool` hooks
 - **Codex notify** — writes `.codex/config.toml` in the task directory with `notify` pointing to `ma-codex-notify` (project-level config, no global config modification)
-- **Cursor hooks** — `.cursor/hooks.json` with `beforeShellExecution` hook for Todo → InProgress detection (only hook that works in CLI mode; `stop`/`beforeSubmitPrompt`/`postToolUse` do not fire in CLI)
+- **Cursor hooks** — `.cursor/hooks.json` calls `ma-cursor-hooks <task_dir>`: `beforeSubmitPrompt` + `beforeShellExecution` → `.prompt_submitted` / clear `.agent_stopped`; `stop` → `.agent_stopped`; `postToolUse` → `.pr_links` grep（Claude と同パターン）。**対話 `agent`（`-p` なし）**では `beforeSubmitPrompt`/`stop` が取れる。**`agent --print`** ではそれらは発火しないが `beforeShellExecution`/`postToolUse` は残る。検証は `scripts/cursor-hook-verify/run-verify.sh`。
 - All agent skills share the same body via `skill_body()` helper, differing only in frontmatter and directory placement
 
 ### Services (services/)

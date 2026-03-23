@@ -42,9 +42,12 @@ impl AgentMonitor {
                 AgentCli::None => {}
             }
 
-            // PR link discovery — Claude uses PostToolUse hook, Gemini uses AfterTool hook.
-            // Cursor CLI does not support hooks in CLI mode, so PR links are not auto-discovered.
-            if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Gemini) {
+            // PR link discovery — Claude PostToolUse, Gemini AfterTool, Cursor postToolUse hook
+            // (see `write_cursor_hooks` + `ma-cursor-hooks`).
+            if matches!(
+                task.agent_cli,
+                AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor
+            ) {
                 let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
                 events.extend(link_events);
             }
@@ -61,10 +64,10 @@ impl AgentMonitor {
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
     ///
     /// Marker files:
-    /// - `.prompt_submitted` — created by UserPromptSubmit hook (Claude) or
-    ///   notify script (Codex) when the user sends a prompt.
-    /// - `.agent_stopped` — created by Stop hook (Claude) or notify script
-    ///   (Codex) when the agent finishes and is waiting for user input.
+    /// - `.prompt_submitted` — UserPromptSubmit (Claude), BeforeAgent (Gemini),
+    ///   notify (Codex), or `beforeSubmitPrompt` / `beforeShellExecution` (Cursor via `ma-cursor-hooks`).
+    /// - `.agent_stopped` — Stop (Claude), AfterAgent (Gemini), notify (Codex),
+    ///   or `stop` (Cursor via `ma-cursor-hooks`).
     fn check_agent_task(
         &self,
         task_id: &str,

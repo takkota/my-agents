@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "sessionEnd": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/log-hook.sh",
+        "matcher": "UserPromptSubmit"
+      }
+    ],
+    "preToolUse": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "postToolUse": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "postToolUseFailure": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "beforeShellExecution": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "afterShellExecution": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "beforeMCPExecution": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "afterMCPExecution": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "beforeReadFile": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "afterFileEdit": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "stop": [{ "command": ".cursor/hooks/log-hook.sh", "matcher": "Stop" }],
+    "afterAgentResponse": [
+      {
+        "command": ".cursor/hooks/log-hook.sh",
+        "matcher": "AgentResponse"
+      }
+    ],
+    "afterAgentThought": [
+      {
+        "command": ".cursor/hooks/log-hook.sh",
+        "matcher": "AgentThought"
+      }
+    ],
+    "preCompact": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "subagentStart": [{ "command": ".cursor/hooks/log-hook.sh" }],
+    "subagentStop": [{ "command": ".cursor/hooks/log-hook.sh" }]
+  }
+}
