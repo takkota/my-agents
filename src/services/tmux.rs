@@ -257,8 +257,44 @@ impl TmuxService {
             Self::tmux_cmd()
                 .args(["send-keys", "-t", session, &full_cmd, "Enter"])
                 .output()?;
+
+            // Cursor CLI shows a "Workspace Trust Required" dialog on untrusted
+            // directories. Auto-accept by polling the pane and sending 'a' when
+            // the dialog is detected.
+            if *cli == AgentCli::Cursor {
+                Self::auto_accept_cursor_trust(session.to_string());
+            }
         }
         Ok(())
+    }
+
+    /// Poll a tmux pane for Cursor's "Workspace Trust Required" dialog and
+    /// send 'a' to accept it. Runs in a background thread with a timeout
+    /// so it's a no-op if the dialog never appears (already trusted).
+    fn auto_accept_cursor_trust(session: String) {
+        std::thread::spawn(move || {
+            const POLL_INTERVAL: Duration = Duration::from_millis(200);
+            const TIMEOUT: Duration = Duration::from_secs(10);
+
+            let start = std::time::Instant::now();
+            while start.elapsed() < TIMEOUT {
+                std::thread::sleep(POLL_INTERVAL);
+
+                let output = Self::tmux_cmd()
+                    .args(["capture-pane", "-t", &session, "-p"])
+                    .output();
+
+                if let Ok(o) = output {
+                    let content = String::from_utf8_lossy(&o.stdout);
+                    if content.contains("Workspace Trust Required") {
+                        let _ = Self::tmux_cmd()
+                            .args(["send-keys", "-t", &session, "a"])
+                            .output();
+                        return;
+                    }
+                }
+            }
+        });
     }
 
     /// Launch an agent with `resume_command()` to continue the previous conversation.
