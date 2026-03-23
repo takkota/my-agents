@@ -263,7 +263,7 @@ impl Modal for CreateTaskModal {
         if has_agent {
             // Instructions field: default 7 lines, grows up to 20 lines, then scrolls.
             // On small terminals, shrink to fit available space (minimum 3 content lines).
-            let fixed_height: u16 = 3 + 5 + link_height + 7 + 5; // other fields
+            let fixed_height: u16 = 3 + 5 + link_height + 7 + 7; // Name + Notes + Link + Priority + AgentCli
             let available_for_instr = inner.height.saturating_sub(fixed_height);
             let instr_line_count = self.instructions_input.value.split('\n').count().max(1);
             let ideal_lines = instr_line_count.clamp(INSTRUCTIONS_MIN_LINES, INSTRUCTIONS_MAX_LINES) as u16 + 2;
@@ -275,7 +275,7 @@ impl Modal for CreateTaskModal {
                 Constraint::Length(5),           // Notes
                 Constraint::Length(link_height), // LinkUrl
                 Constraint::Length(7),           // Priority
-                Constraint::Length(6),           // AgentCli (4 items + 2 border)
+                Constraint::Length(7),           // AgentCli (5 items + 2 border)
             ])
             .split(inner);
 
@@ -292,7 +292,7 @@ impl Modal for CreateTaskModal {
                 Constraint::Length(5),           // Notes
                 Constraint::Length(link_height), // LinkUrl
                 Constraint::Length(7),           // Priority
-                Constraint::Length(6),           // AgentCli (4 items + 2 border)
+                Constraint::Length(7),           // AgentCli (5 items + 2 border)
             ])
             .split(inner);
 
