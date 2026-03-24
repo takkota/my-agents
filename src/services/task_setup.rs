@@ -60,33 +60,17 @@ pub fn run_task_setup(
         .map(|r| (r.name.clone(), r.path.clone()))
         .collect();
 
-    // Create worktrees (3-phase: create without checkout → checkout → copy files)
-    // Copy happens AFTER checkout so that tracked files copied from the upstream
-    // repo don't conflict with `git checkout` (which would fail with "untracked
-    // working tree files would be overwritten"). The copied files overwrite
-    // whatever checkout (and its post-checkout hooks) produced.
+    // Create worktrees (3-phase: create without checkout → copy files → checkout -f)
+    // Copy happens BEFORE checkout so that post-checkout hooks (e.g. treeyard
+    // init) can modify copied files (e.g. update WEB_PORT in .env).
+    // Checkout uses `-f` to overwrite the untracked copied files safely.
     let worktree_svc = WorktreeService::new();
     let worktrees = if !repos.is_empty() {
         match worktree_svc.create_worktrees_for_task(input.task_dir, &input.task.id, &repos) {
             Ok(wts) => {
-                // Phase 2: Checkout (triggers post-checkout hooks)
-                // If checkout fails, remove the broken worktree and exclude it.
-                let mut checked_out = Vec::new();
-                for wt in wts {
-                    if let Err(e) = WorktreeService::checkout_worktree(&wt.worktree_path, &wt.branch) {
-                        let msg = format!("Worktree checkout failed for {}: {}", wt.repo_name, e);
-                        append_error(&mut error_msg, &msg);
-                        worktree::log_worktree_error(input.task_dir, &msg);
-                        let _ = worktree_svc.remove_worktree(&wt);
-                    } else {
-                        checked_out.push(wt);
-                    }
-                }
-                // Phase 3: Copy files into worktrees (after checkout)
-                // This overwrites checked-out and hook-generated files with the
-                // upstream repo's versions, which is the desired behavior.
+                // Phase 2: Copy files into worktrees (before checkout)
                 if !input.project.worktree_copy_files.is_empty() {
-                    for wt in &checked_out {
+                    for wt in &wts {
                         if let Err(e) = WorktreeService::copy_files_to_worktree(
                             &wt.upstream_path,
                             &wt.worktree_path,
@@ -97,6 +81,20 @@ pub fn run_task_setup(
                                 &format!("Failed to copy files to worktree {}: {}", wt.repo_name, e),
                             );
                         }
+                    }
+                }
+                // Phase 3: Checkout with -f (triggers post-checkout hooks)
+                // Hooks can now modify copied files (e.g. treeyard updates .env).
+                // If checkout fails, remove the broken worktree and exclude it.
+                let mut checked_out = Vec::new();
+                for wt in wts {
+                    if let Err(e) = WorktreeService::checkout_worktree(&wt.worktree_path, &wt.branch) {
+                        let msg = format!("Worktree checkout failed for {}: {}", wt.repo_name, e);
+                        append_error(&mut error_msg, &msg);
+                        worktree::log_worktree_error(input.task_dir, &msg);
+                        let _ = worktree_svc.remove_worktree(&wt);
+                    } else {
+                        checked_out.push(wt);
                     }
                 }
                 checked_out

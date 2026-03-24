@@ -167,13 +167,14 @@ impl WorktreeService {
     }
 
     /// Checkout files in an already-created worktree.
-    /// This triggers post-checkout hooks, so any files copied into the
-    /// worktree beforehand (e.g. `.env`) can be updated by hooks.
+    /// Uses `-f` to overwrite untracked files (e.g. files copied before
+    /// checkout). This triggers post-checkout hooks, so any files copied
+    /// into the worktree beforehand (e.g. `.env`) can be updated by hooks.
     pub fn checkout_worktree(worktree_path: &Path, branch: &str) -> AppResult<()> {
         let output = Command::new("git")
             .arg("-C")
             .arg(worktree_path)
-            .args(["checkout", branch])
+            .args(["checkout", "-f", branch])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()?;
