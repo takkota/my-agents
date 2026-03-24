@@ -230,7 +230,14 @@ impl App {
             }
             let _ = self.update_task(&result.project_id, &result.task_id, |task| {
                 task.worktrees = result.worktrees;
-                task.tmux_session = result.tmux_session;
+                // Only update tmux_session if the background thread produced a
+                // value, or the task doesn't already have one.  When the user
+                // attaches quickly after creation, resolve_attach_session may
+                // have already created and persisted the session — don't
+                // overwrite it with None from a racing background thread.
+                if result.tmux_session.is_some() || task.tmux_session.is_none() {
+                    task.tmux_session = result.tmux_session;
+                }
                 task.updated_at = Utc::now();
             });
             let _ = self.reload_data();
@@ -1198,18 +1205,31 @@ impl App {
                 }
 
                 if !used_file_preview {
-                    let session_name = self.task_tree.selected_item().and_then(|item| {
+                    let session_name_owned = self.task_tree.selected_item().and_then(|item| {
                         match item {
                             TreeItem::Task { id, project_id, .. } => {
-                                self.tasks_by_project
+                                let from_task = self.tasks_by_project
                                     .get(project_id.as_str())
                                     .and_then(|tasks| tasks.iter().find(|t| t.id == *id))
-                                    .and_then(|t| t.tmux_session.as_deref())
+                                    .and_then(|t| t.tmux_session.clone());
+                                if from_task.is_some() {
+                                    return from_task;
+                                }
+                                // Fallback: derive session name from naming convention
+                                // and check if it actually exists in active_sessions.
+                                // This covers the case where task.tmux_session is None
+                                // (e.g. due to a race during task creation) but the
+                                // tmux session is physically running.
+                                let derived = TmuxService::session_name(project_id, id);
+                                if self.active_sessions.contains(&derived) {
+                                    Some(derived)
+                                } else {
+                                    None
+                                }
                             }
                             TreeItem::Project { .. } => None,
                         }
                     });
-                    let session_name_owned = session_name.map(|s| s.to_string());
                     self.preview_panel
                         .update_preview(session_name_owned.as_deref(), &self.tmux);
                 }
