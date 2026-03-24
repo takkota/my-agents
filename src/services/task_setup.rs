@@ -159,6 +159,12 @@ pub fn run_task_setup(
                 }
                 Some(session_name)
             }
+            Err(_) if tmux.session_exists(&session_name) => {
+                // Session was already created (e.g. by resolve_attach_session
+                // racing with this background thread). Reuse it instead of
+                // reporting an error.
+                Some(session_name)
+            }
             Err(e) => {
                 append_error(&mut error_msg, &format!("tmux session creation failed: {}", e));
                 None
