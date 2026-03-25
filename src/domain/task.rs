@@ -108,7 +108,7 @@ impl AgentCli {
     /// Returns the full launch command with CLI-specific flags.
     pub fn launch_command(&self) -> Option<String> {
         self.command().map(|cmd| match self {
-            AgentCli::Claude => format!("{} --enable-auto-mode", cmd),
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo", cmd),
             AgentCli::Cursor => format!("{} --model composer-2-fast --yolo", cmd),
             _ => cmd.to_string(),
@@ -119,7 +119,7 @@ impl AgentCli {
     /// Output is plain text suitable for file capture. Used by PM triggers.
     pub fn non_interactive_command(&self) -> Option<String> {
         self.command().map(|cmd| match self {
-            AgentCli::Claude => format!("{} --enable-auto-mode -p", cmd),
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions -p", cmd),
             AgentCli::Codex => format!("{} -q", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo -p", cmd),
             AgentCli::Cursor => format!("{} --model composer-2-fast --yolo -p", cmd),
@@ -130,7 +130,7 @@ impl AgentCli {
     /// Returns the non-interactive command that resumes the previous conversation.
     pub fn non_interactive_resume_command(&self) -> Option<String> {
         self.command().map(|cmd| match self {
-            AgentCli::Claude => format!("{} --enable-auto-mode --continue -p", cmd),
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue -p", cmd),
             AgentCli::Codex => format!("{} -q", cmd), // Codex -q doesn't support resume
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume -p", cmd),
             AgentCli::Cursor => format!("{} --model composer-2-fast --yolo --continue -p", cmd),
@@ -143,7 +143,7 @@ impl AgentCli {
     pub fn resume_command(&self) -> Option<String> {
         // command() returns None for AgentCli::None, so map() short-circuits.
         self.command().map(|cmd| match self {
-            AgentCli::Claude => format!("{} --enable-auto-mode --continue", cmd),
+            AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue", cmd),
             AgentCli::Codex => format!("{} resume --last", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume", cmd),
             AgentCli::Cursor => format!("{} --model composer-2-fast --yolo --continue", cmd),
