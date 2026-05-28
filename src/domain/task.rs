@@ -110,7 +110,7 @@ impl AgentCli {
         self.command().map(|cmd| match self {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo", cmd),
-            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo", cmd),
+            AgentCli::Cursor => format!("{} --yolo", cmd),
             _ => cmd.to_string(),
         })
     }
@@ -122,7 +122,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions -p", cmd),
             AgentCli::Codex => format!("{} -q", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo -p", cmd),
-            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo -p", cmd),
+            AgentCli::Cursor => format!("{} --yolo -p", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -133,7 +133,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue -p", cmd),
             AgentCli::Codex => format!("{} -q", cmd), // Codex -q doesn't support resume
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume -p", cmd),
-            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo --continue -p", cmd),
+            AgentCli::Cursor => format!("{} --yolo --continue -p", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -146,7 +146,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions --continue", cmd),
             AgentCli::Codex => format!("{} resume --last", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume", cmd),
-            AgentCli::Cursor => format!("{} --model composer-2-fast --yolo --continue", cmd),
+            AgentCli::Cursor => format!("{} --yolo --continue", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }

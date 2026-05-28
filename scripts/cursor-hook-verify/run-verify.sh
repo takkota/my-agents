@@ -43,7 +43,6 @@ set +e
 agent \
   --workspace "$VERIFY_DIR" \
   --trust \
-  --model composer-2-fast \
   --yolo \
   --print \
   -p "$PROMPT"
