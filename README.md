@@ -185,6 +185,16 @@ tick_rate_ms = 250
 monitor_interval_secs = 3
 ```
 
+## direnv
+
+my-agents は起動時・更新後の初期化時に、`~/.config/direnv/direnv.toml` の
+`[whitelist].prefix` へ `~/.my-agents/projects/` を自動追加します。
+これにより、タスクごとに作られる git worktree の `.envrc` が毎回 block されず、
+各リポジトリの direnv 設定が読み込まれます。
+
+この設定は `~/.my-agents/projects/` 配下の `.envrc` を一括で信頼するものです。
+信頼できないリポジトリや未確認の `.envrc` をその配下で扱う場合は注意してください。
+
 ## Tech Stack
 
 - [Rust](https://www.rust-lang.org/)

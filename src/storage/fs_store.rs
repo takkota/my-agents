@@ -47,6 +47,9 @@ impl FsStore {
         fs::create_dir_all(&projects_dir)?;
         let store = Self { projects_dir, bin_dir };
         store.install_scripts(&config.data_dir)?;
+        // Best-effort: direnv setup should not block app startup.
+        let _ =
+            crate::services::direnv::ensure_my_agents_projects_whitelisted(&config.projects_dir());
         Ok(store)
     }
 
