@@ -1,5 +1,6 @@
 pub mod tmux;
 pub mod worktree;
+pub mod direnv;
 pub mod git_finder;
 pub mod agent_monitor;
 pub mod pr_monitor;

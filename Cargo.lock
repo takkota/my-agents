@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "my-agents"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -562,6 +562,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "toml_edit",
  "unicode-width 0.2.0",
  "uuid",
 ]
