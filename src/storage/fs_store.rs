@@ -318,18 +318,25 @@ impl FsStore {
                 }
             })
             .collect();
-        if task.agent_cli == crate::domain::task::AgentCli::Codex {
+        if task.agent_cli == crate::domain::task::AgentCli::Codex
+            || task.agent_cli == crate::domain::task::AgentCli::Devin
+        {
+            let skill_ref = if task.agent_cli == crate::domain::task::AgentCli::Devin {
+                "`/task-management`"
+            } else {
+                "`$task-management`"
+            };
             agents_lines.push(String::new());
             agents_lines.push("## Task Management".to_string());
             agents_lines.push(format!(
                 "This session is managed by my-agents. Task ID: `{}`, Project: `{}`.",
                 task.id, task.project_id
             ));
-            agents_lines.push(
-                "Use the `$task-management` skill when you need to check task details, \
-                 update status, add links, or create new tasks."
-                    .to_string(),
-            );
+            agents_lines.push(format!(
+                "Use the {} skill when you need to check task details, \
+                 update status, add links, or create new tasks.",
+                skill_ref
+            ));
             if !pr_prompt.trim().is_empty() {
                 agents_lines.push(String::new());
                 agents_lines.push("## Pull Request".to_string());
@@ -399,6 +406,12 @@ impl FsStore {
             self.write_cursor_skill(task)?;
         }
 
+        // Write Devin CLI hooks config and skill for Devin agent tasks
+        if task.agent_cli == crate::domain::task::AgentCli::Devin {
+            self.write_devin_hooks(task)?;
+            self.write_devin_skill(task)?;
+        }
+
         // Write dev-environment skill if project has dev_environment_prompt
         let dev_env_prompt = project.and_then(|p| p.dev_environment_prompt.as_deref());
         if let Some(prompt) = dev_env_prompt {
@@ -449,6 +462,18 @@ impl FsStore {
                 };
                 content.push_str("\n## Dev Environment\nUse the `/dev-environment` skill to start the development server and register preview URLs.\n");
                 fs::write(&cursorrules_path, content)?;
+            }
+            if task.agent_cli == crate::domain::task::AgentCli::Devin {
+                Self::write_dev_env_skill_devin(&dir, task, prompt)?;
+                // Append dev-environment skill reference to AGENTS.md
+                let agents_md_path = dir.join("AGENTS.md");
+                let mut content = if agents_md_path.exists() {
+                    fs::read_to_string(&agents_md_path)?
+                } else {
+                    String::new()
+                };
+                content.push_str("\n## Dev Environment\nUse the `/dev-environment` skill to start the development server and register preview URLs.\n");
+                fs::write(&agents_md_path, content)?;
             }
         }
 
@@ -597,6 +622,14 @@ impl FsStore {
             let task_cursor_skills = task_dir.join(".cursor").join("skills");
             fs::create_dir_all(&task_cursor_skills)?;
             Self::copy_skills_dir(&project_cursor_skills, &task_cursor_skills)?;
+        }
+
+        // Devin CLI skills: .devin/skills/
+        let project_devin_skills = project_dir.join(".devin").join("skills");
+        if project_devin_skills.is_dir() {
+            let task_devin_skills = task_dir.join(".devin").join("skills");
+            fs::create_dir_all(&task_devin_skills)?;
+            Self::copy_skills_dir(&project_devin_skills, &task_devin_skills)?;
         }
 
         Ok(())
@@ -952,6 +985,79 @@ impl FsStore {
         Ok(())
     }
 
+    /// Write `.devin/hooks.v1.json` in the task directory with hooks that
+    /// support task management (prompt activity detection, agent stop detection,
+    /// PR link discovery). Devin's lifecycle hook event names (`UserPromptSubmit`,
+    /// `Stop`, `PostToolUse`) and command-hook format mirror Claude Code's, but
+    /// `hooks.v1.json` has no top-level `hooks` wrapper key — the file *is* the
+    /// hooks object.
+    pub fn write_devin_hooks(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+
+        let devin_dir = task_dir.join(".devin");
+        fs::create_dir_all(&devin_dir)?;
+
+        let pr_links_path = task_dir.join(".pr_links");
+        let pr_links_path_str = pr_links_path.to_string_lossy();
+        let prompt_submitted_path = task_dir.join(".prompt_submitted");
+        let prompt_submitted_path_str = prompt_submitted_path.to_string_lossy();
+        let agent_stopped_path = task_dir.join(".agent_stopped");
+        let agent_stopped_path_str = agent_stopped_path.to_string_lossy();
+
+        let hooks = serde_json::json!({
+            "UserPromptSubmit": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": format!(
+                                "touch {} && rm -f {}",
+                                shell_escape(&prompt_submitted_path_str),
+                                shell_escape(&agent_stopped_path_str)
+                            )
+                        }
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": format!(
+                                "touch {}",
+                                shell_escape(&agent_stopped_path_str)
+                            )
+                        }
+                    ]
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": format!(
+                                "grep -oE 'https://github\\.com/[^\"/]+/[^\"/]+/pull/[0-9]+' | grep -vE '/(owner|org|example|user|your-org)/' | grep -vE '/[^\"/]+/(repo|repository|my-repo|your-repo|example)/pull/' >> {} || true",
+                                shell_escape(&pr_links_path_str)
+                            )
+                        }
+                    ]
+                }
+            ]
+        });
+
+        fs::write(
+            devin_dir.join("hooks.v1.json"),
+            serde_json::to_string_pretty(&hooks)?,
+        )?;
+
+        Ok(())
+    }
+
     /// Copy `.claude/settings.local.json` from the project directory to the
     /// task directory so that project-local settings (e.g. plugin
     /// configurations not committed to version control) are inherited.
@@ -1057,7 +1163,7 @@ ma-task list --project {project_id}
 ### Create a new task
 
 ```bash
-ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|Gemini|Cursor|None]
+ma-task create --project {project_id} --name "task name" [--priority P1-P5] [--agent Claude|Codex|Gemini|Cursor|Devin|None]
 ```
 
 ### Update task fields
@@ -1187,6 +1293,30 @@ ma-task projects
         Ok(())
     }
 
+    /// Write `.devin/skills/task-management/SKILL.md` in the task directory for Devin CLI.
+    fn write_devin_skill(&self, task: &Task) -> AppResult<()> {
+        let task_dir = self.task_dir(&task.project_id, &task.id);
+        let skill_dir = task_dir
+            .join(".devin")
+            .join("skills")
+            .join("task-management");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: task-management\n\
+             description: \"Use when you need to check your task details, update task status, \
+             add links (PR/issue URLs), or create/list tasks in the project.\"\n\
+             allowed-tools:\n\
+             \x20\x20- exec\n\
+             ---\n\n{}",
+            Self::skill_body(task),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
     /// Generate the body for the dev-environment skill.
     fn dev_env_skill_body(task: &Task, prompt: &str) -> String {
         format!(
@@ -1308,6 +1438,28 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
         Ok(())
     }
 
+    /// Write `.devin/skills/dev-environment/SKILL.md` in the task directory for Devin CLI.
+    fn write_dev_env_skill_devin(dir: &std::path::Path, task: &Task, prompt: &str) -> AppResult<()> {
+        let skill_dir = dir
+            .join(".devin")
+            .join("skills")
+            .join("dev-environment");
+        fs::create_dir_all(&skill_dir)?;
+
+        let skill_md = format!(
+            "---\n\
+             name: dev-environment\n\
+             description: \"Use to start the development environment and register preview URLs for this project.\"\n\
+             allowed-tools:\n\
+             \x20\x20- exec\n\
+             ---\n\n{}",
+            Self::dev_env_skill_body(task, prompt),
+        );
+
+        fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+        Ok(())
+    }
+
     // PM (Project Manager) methods
 
     pub fn pm_dir(&self, project_id: &str) -> PathBuf {
@@ -1400,6 +1552,24 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                 );
                 fs::write(skill_dir.join("SKILL.md"), skill_md)?;
             }
+            crate::domain::task::AgentCli::Devin => {
+                // Write AGENTS.md to project dir (Devin reads AGENTS.md automatically)
+                fs::write(project_dir.join("AGENTS.md"), &pm_config_body)?;
+
+                // Write PM skill to project dir
+                let skill_dir = project_dir.join(".devin").join("skills").join("pm-manager");
+                fs::create_dir_all(&skill_dir)?;
+                let skill_md = format!(
+                    "---\n\
+                     name: pm-manager\n\
+                     description: \"Use to check project task progress, analyze agent sessions, and provide status reports with recommendations.\"\n\
+                     allowed-tools:\n\
+                     \x20\x20- exec\n\
+                     ---\n\n{}",
+                    pm_skill,
+                );
+                fs::write(skill_dir.join("SKILL.md"), skill_md)?;
+            }
             crate::domain::task::AgentCli::None => {}
         }
 
@@ -1442,6 +1612,11 @@ ma-task preview-url {task_id} http://localhost:8080 --name api
                 lines.push("pm-managerスキルを使用してレビューを実行してください。".to_string());
             }
             crate::domain::task::AgentCli::Cursor => {
+                lines.push("## 開始方法".to_string());
+                lines.push(String::new());
+                lines.push("`/pm-manager` スキルを使用してレビューを実行してください。".to_string());
+            }
+            crate::domain::task::AgentCli::Devin => {
                 lines.push("## 開始方法".to_string());
                 lines.push(String::new());
                 lines.push("`/pm-manager` スキルを使用してレビューを実行してください。".to_string());

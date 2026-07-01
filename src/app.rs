@@ -185,6 +185,7 @@ impl App {
                     AgentCli::Claude => { let _ = app.store.write_claude_hooks(task); }
                     AgentCli::Gemini => { let _ = app.store.write_gemini_hooks(task); }
                     AgentCli::Cursor => { let _ = app.store.write_cursor_hooks(task); }
+                    AgentCli::Devin => { let _ = app.store.write_devin_hooks(task); }
                     _ => {}
                 }
             }
@@ -941,7 +942,7 @@ impl App {
                 // so the monitor won't override the manual change.
                 if let Some(tasks) = self.tasks_by_project.get(&project_id) {
                     if let Some(task) = tasks.iter().find(|t| t.id == task_id) {
-                        if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini | AgentCli::Cursor) {
+                        if matches!(task.agent_cli, AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini | AgentCli::Cursor | AgentCli::Devin) {
                             let task_dir = self.store.task_dir(&project_id, &task_id);
                             let _ = std::fs::remove_file(task_dir.join(".prompt_submitted"));
                             let _ = std::fs::remove_file(task_dir.join(".agent_stopped"));
@@ -1423,6 +1424,7 @@ impl App {
             AgentCli::Codex => "$pm-manager",
             AgentCli::Gemini => "pm-managerスキルを使って現況確認を行ってください",
             AgentCli::Cursor => "/pm-manager",
+            AgentCli::Devin => "/pm-manager",
             AgentCli::None => return Ok(()),
         };
 

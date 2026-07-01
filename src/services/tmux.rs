@@ -299,9 +299,10 @@ impl TmuxService {
 
     /// Launch an agent with `resume_command()` to continue the previous conversation.
     /// For CLIs that support inline prompts (Claude, Gemini), the prompt is embedded
-    /// in the command. For Codex (`resume --last`), the agent is launched first and
-    /// the prompt is sent separately after a delay. A guard file is used to prevent
-    /// stale threads from sending prompts into a re-created session.
+    /// in the command. For Codex (`resume --last`) and Devin (`--continue`), neither of
+    /// which accept inline prompts, the agent is launched first and the prompt is sent
+    /// separately after a delay. A guard file is used to prevent stale threads from
+    /// sending prompts into a re-created session.
     pub fn launch_agent_resume(
         &self,
         session: &str,
@@ -311,14 +312,15 @@ impl TmuxService {
     ) -> AppResult<()> {
         if let Some(cmd) = cli.resume_command() {
             match cli {
-                // Codex `resume --last` doesn't accept inline prompts
-                AgentCli::Codex => {
+                // Codex `resume --last` and Devin `--continue` don't accept inline prompts
+                AgentCli::Codex | AgentCli::Devin => {
                     Self::tmux_cmd()
                         .args(["send-keys", "-t", session, &cmd, "Enter"])
                         .output()?;
                     // Send prompt after agent startup, guarded by file existence
                     let session_owned = session.to_string();
                     let prompt_owned = prompt.to_string();
+                    let cli_owned = *cli;
                     let guard = guard_file.map(|p| p.to_path_buf());
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_secs(3));
@@ -329,7 +331,7 @@ impl TmuxService {
                             }
                         }
                         let tmux = TmuxService::new();
-                        let _ = tmux.send_prompt(&session_owned, AgentCli::Codex, &prompt_owned);
+                        let _ = tmux.send_prompt(&session_owned, cli_owned, &prompt_owned);
                     });
                 }
                 // Claude and Gemini accept inline prompts.
@@ -355,7 +357,9 @@ impl TmuxService {
             // Codex treats rapid `send-keys ... Enter` input as a paste burst and may leave the
             // text in the composer instead of submitting it. Bracketed paste avoids that path.
             AgentCli::Codex => self.paste_text_and_submit(session, text),
-            AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor | AgentCli::None => self.send_text(session, text),
+            AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor | AgentCli::Devin | AgentCli::None => {
+                self.send_text(session, text)
+            }
         }
     }
 

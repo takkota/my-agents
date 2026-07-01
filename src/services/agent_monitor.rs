@@ -34,7 +34,7 @@ impl AgentMonitor {
 
         for task in &tasks {
             match task.agent_cli {
-                AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini | AgentCli::Cursor => {
+                AgentCli::Claude | AgentCli::Codex | AgentCli::Gemini | AgentCli::Cursor | AgentCli::Devin => {
                     if let Some(e) = self.check_agent_task(&task.id, &task.project_id, &task.status, &task.tmux_session) {
                         events.push(e);
                     }
@@ -43,10 +43,10 @@ impl AgentMonitor {
             }
 
             // PR link discovery — Claude PostToolUse, Gemini AfterTool, Cursor postToolUse hook
-            // (see `write_cursor_hooks` + `ma-cursor-hooks`).
+            // (see `write_cursor_hooks` + `ma-cursor-hooks`), Devin PostToolUse hook.
             if matches!(
                 task.agent_cli,
-                AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor
+                AgentCli::Claude | AgentCli::Gemini | AgentCli::Cursor | AgentCli::Devin
             ) {
                 let link_events = self.check_pr_links(&task.id, &task.project_id, &task.links);
                 events.extend(link_events);
@@ -64,9 +64,9 @@ impl AgentMonitor {
     /// - Todo + tmux session dead → Blocked (agent crashed or failed to start)
     ///
     /// Marker files:
-    /// - `.prompt_submitted` — UserPromptSubmit (Claude), BeforeAgent (Gemini),
+    /// - `.prompt_submitted` — UserPromptSubmit (Claude, Devin), BeforeAgent (Gemini),
     ///   notify (Codex), or `beforeSubmitPrompt` / `beforeShellExecution` (Cursor via `ma-cursor-hooks`).
-    /// - `.agent_stopped` — Stop (Claude), AfterAgent (Gemini), notify (Codex),
+    /// - `.agent_stopped` — Stop (Claude, Devin), AfterAgent (Gemini), notify (Codex),
     ///   or `stop` (Cursor via `ma-cursor-hooks`).
     fn check_agent_task(
         &self,

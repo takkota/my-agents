@@ -211,8 +211,9 @@ cmd_create() {
         Codex|codex) agent_cli="Codex" ;;
         Gemini|gemini) agent_cli="Gemini" ;;
         Cursor|cursor) agent_cli="Cursor" ;;
+        Devin|devin) agent_cli="Devin" ;;
         None|none) agent_cli="None" ;;
-        *) die "invalid agent: ${agent_cli} (use Claude, Codex, Gemini, Cursor, or None)" ;;
+        *) die "invalid agent: ${agent_cli} (use Claude, Codex, Gemini, Cursor, Devin, or None)" ;;
     esac
 
     local task_id now
@@ -329,8 +330,9 @@ cmd_update() {
                     Codex|codex) agent_val="Codex" ;;
                     Gemini|gemini) agent_val="Gemini" ;;
                     Cursor|cursor) agent_val="Cursor" ;;
+                    Devin|devin) agent_val="Devin" ;;
                     None|none) agent_val="None" ;;
-                    *) die "invalid agent: $agent_val (use Claude, Codex, Gemini, Cursor, or None)" ;;
+                    *) die "invalid agent: $agent_val (use Claude, Codex, Gemini, Cursor, Devin, or None)" ;;
                 esac
                 json="$(echo "$json" | jq --arg v "$agent_val" '.agent_cli = $v')"
                 shift 2 ;;
@@ -764,6 +766,7 @@ cmd_prompt() {
         Codex)  expected_cmd="codex" ;;
         Gemini) expected_cmd="gemini" ;;
         Cursor) expected_cmd="agent" ;;
+        Devin)  expected_cmd="devin" ;;
     esac
     if [ -n "$expected_cmd" ]; then
         local pane_cmd
@@ -845,7 +848,7 @@ Create options:
   --project, -p <id>    Project ID (auto-detected if in task dir)
   --name, -n <name>     Task name (required)
   --priority <P1-P5>    Priority (default: P3)
-  --agent <cli>         Agent CLI: Claude, Codex, Gemini, Cursor, None (default: Claude)
+  --agent <cli>         Agent CLI: Claude, Codex, Gemini, Cursor, Devin, None (default: Claude)
   --notes <text>        Initial notes
   --prompt <text>       Initial instructions for the agent (required for --run)
   --link <url>          Add a link (repeatable for multiple links)
@@ -856,7 +859,7 @@ Update options:
   --priority <P1-P5>    New priority
   --notes <text>        New notes
   --prompt <text>       Update initial instructions
-  --agent <cli>         Agent CLI: Claude, Codex, Gemini, Cursor, None
+  --agent <cli>         Agent CLI: Claude, Codex, Gemini, Cursor, Devin, None
 
 Prompt options:
   --stdin               Read prompt text from stdin (for multiline input)

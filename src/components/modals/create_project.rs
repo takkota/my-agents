@@ -63,6 +63,7 @@ impl CreateProjectModal {
             ("Codex".to_string(), AgentCli::Codex),
             ("Gemini".to_string(), AgentCli::Gemini),
             ("Cursor".to_string(), AgentCli::Cursor),
+            ("Devin".to_string(), AgentCli::Devin),
         ];
         let pm_agent_cli_list = SelectList::new("PM Agent CLI", pm_agent_items);
         let pm_cron_input = TextInput::new("PM Cron Expression (e.g. */30 * * * *)");
