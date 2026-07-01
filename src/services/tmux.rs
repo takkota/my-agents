@@ -250,7 +250,10 @@ impl TmuxService {
                 // Pass initial prompt via file using single-quoted path to prevent
                 // shell injection. Any single quotes in the path are escaped.
                 let escaped = prompt_file.to_string_lossy().replace('\'', "'\\''");
-                format!("{} \"$(cat '{}')\"", cmd, escaped)
+                // Devin's CLI syntax is `devin [OPTIONS] [-- <PROMPT>...]`; without
+                // the `--` separator it rejects the prompt as an unexpected argument.
+                let separator = if *cli == AgentCli::Devin { " --" } else { "" };
+                format!("{}{} \"$(cat '{}')\"", cmd, separator, escaped)
             } else {
                 cmd
             };
@@ -263,6 +266,13 @@ impl TmuxService {
             // the dialog is detected.
             if *cli == AgentCli::Cursor {
                 Self::auto_accept_cursor_trust(session.to_string());
+            }
+
+            // Devin CLI shows a "Do you trust the authors of this directory?"
+            // dialog on untrusted directories, with "Yes, trust" pre-selected.
+            // Auto-accept by polling the pane and sending Enter when detected.
+            if *cli == AgentCli::Devin {
+                Self::auto_accept_devin_trust(session.to_string());
             }
         }
         Ok(())
@@ -289,6 +299,36 @@ impl TmuxService {
                     if content.contains("Workspace Trust Required") {
                         let _ = Self::tmux_cmd()
                             .args(["send-keys", "-t", &session, "a"])
+                            .output();
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Poll a tmux pane for Devin's "Do you trust the authors of this
+    /// directory?" dialog and send Enter to accept the pre-selected
+    /// "Yes, trust" option. Runs in a background thread with a timeout
+    /// so it's a no-op if the dialog never appears (already trusted).
+    fn auto_accept_devin_trust(session: String) {
+        std::thread::spawn(move || {
+            const POLL_INTERVAL: Duration = Duration::from_millis(200);
+            const TIMEOUT: Duration = Duration::from_secs(10);
+
+            let start = std::time::Instant::now();
+            while start.elapsed() < TIMEOUT {
+                std::thread::sleep(POLL_INTERVAL);
+
+                let output = Self::tmux_cmd()
+                    .args(["capture-pane", "-t", &session, "-p"])
+                    .output();
+
+                if let Ok(o) = output {
+                    let content = String::from_utf8_lossy(&o.stdout);
+                    if content.contains("Do you trust the authors of this directory?") {
+                        let _ = Self::tmux_cmd()
+                            .args(["send-keys", "-t", &session, "Enter"])
                             .output();
                         return;
                     }
