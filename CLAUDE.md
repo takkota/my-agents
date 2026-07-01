@@ -16,7 +16,7 @@ cargo install --path .     # Install binary as `my-agents`
 
 ## What This Is
 
-A TUI-based task manager for AI coding agents (Claude Code / Codex / Gemini CLI / Cursor). It manages multiple agent sessions per project, each with its own tmux session and git worktree. Data is stored as JSON files under `~/.my-agents/`.
+A TUI-based task manager for AI coding agents (Claude Code / Codex / Gemini CLI / Cursor / Devin). It manages multiple agent sessions per project, each with its own tmux session and git worktree. Data is stored as JSON files under `~/.my-agents/`.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Modals take input priority when active. Ctrl+N/P/F/B/A/E are remapped to arrow/c
 Single enum representing all possible state transitions. Modal `handle_key()` methods return `Action` variants to communicate back to `App`.
 
 ### Domain (domain/)
-- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/Gemini/Cursor/None), worktrees, links
+- `Task` — has id (8-char UUID prefix), status (Todo/InProgress/ActionRequired/Completed/Blocked), priority (P1-P5), agent_cli (Claude/Codex/Gemini/Cursor/Devin/None), worktrees, links
 - `Project` — groups tasks, references git repos (`RepoRef`), configures `worktree_copy_files`
 
 ### Storage (storage/fs_store.rs)
@@ -43,14 +43,16 @@ Single enum representing all possible state transitions. Modal `handle_key()` me
 On startup, `install_scripts()` embeds `ma-task`, `ma-codex-notify`, and `ma-cursor-hooks` (via `include_str!`) into `~/.my-agents/bin/`. Scripts are auto-updated when the embedded content changes.
 
 When creating agent sessions, `write_agent_config_files()` generates:
-- **CLAUDE.md** / **AGENTS.md** / **GEMINI.md** — `@repo/` references to upstream config + skill trigger description
+- **CLAUDE.md** / **AGENTS.md** / **GEMINI.md** — `@repo/` references to upstream config + skill trigger description (Codex and Devin both share `AGENTS.md`, since Devin also reads it automatically)
 - **Claude Code skill** — `.claude/skills/task-management/SKILL.md` (with `allowed-tools: Bash`)
 - **Codex skill** — `.agents/skills/task-management/SKILL.md` (standard Agent Skills format)
 - **Gemini CLI skill** — `.gemini/skills/task-management/SKILL.md` (no `allowed-tools`, Gemini manages tool permissions separately)
+- **Devin skill** — `.devin/skills/task-management/SKILL.md` (with `allowed-tools: [exec]`)
 - **Claude hooks** — `.claude/settings.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks for auto status tracking and PR link discovery
 - **Gemini hooks** — `.gemini/settings.json` with `BeforeAgent`, `AfterAgent`, and `AfterTool` hooks
 - **Codex notify** — writes `.codex/config.toml` in the task directory with `notify` pointing to `ma-codex-notify` (project-level config, no global config modification)
 - **Cursor hooks** — `.cursor/hooks.json` calls `ma-cursor-hooks <task_dir>`: `beforeSubmitPrompt` + `beforeShellExecution` → `.prompt_submitted` / clear `.agent_stopped`; `stop` → `.agent_stopped`; `postToolUse` → `.pr_links` grep（Claude と同パターン）。**対話 `agent`（`-p` なし）**では `beforeSubmitPrompt`/`stop` が取れる。**`agent --print`** ではそれらは発火しないが `beforeShellExecution`/`postToolUse` は残る。検証は `scripts/cursor-hook-verify/run-verify.sh`。
+- **Devin hooks** — `.devin/hooks.v1.json` with `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks (same event names/command-hook format as Claude Code); unlike `.claude/settings.json` there is no top-level `hooks` wrapper key — the file *is* the hooks object. Launched with `devin --permission-mode bypass` to auto-approve all actions.
 - All agent skills share the same body via `skill_body()` helper, differing only in frontmatter and directory placement
 
 ### Services (services/)
@@ -75,9 +77,9 @@ All modals implement `Modal` trait from `components/modals/mod.rs`. They handle 
 - Task IDs are first 8 chars of UUID v4
 - tmux session names follow pattern: `ma-{project_id}-{task_id_prefix}`
 - Worktree branches: `{task_id_6char}` (first 6 chars of task ID, no slashes)
-- `.prompt_submitted` marker in task dir — created by `UserPromptSubmit` hook (Claude), `BeforeAgent` hook (Gemini), or notify script (Codex) when user sends a prompt; triggers Todo/Completed/ActionRequired → InProgress
-- `.agent_stopped` marker in task dir — created by `Stop` hook (Claude), `AfterAgent` hook (Gemini), or notify script (Codex) when agent finishes responding; triggers InProgress → ActionRequired
+- `.prompt_submitted` marker in task dir — created by `UserPromptSubmit` hook (Claude, Devin), `BeforeAgent` hook (Gemini), or notify script (Codex) when user sends a prompt; triggers Todo/Completed/ActionRequired → InProgress
+- `.agent_stopped` marker in task dir — created by `Stop` hook (Claude, Devin), `AfterAgent` hook (Gemini), or notify script (Codex) when agent finishes responding; triggers InProgress → ActionRequired
 - `config.toml` at `~/.my-agents/config.toml` controls defaults (agent CLI, tick rate, monitor intervals)
 - `ma-task` CLI (bash script in `~/.my-agents/bin/`) lets agents manage tasks via JSON commands
 - `ma-codex-notify` script (bash in `~/.my-agents/bin/`) handles Codex `notify` events for automatic status tracking
-- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex, `.gemini/skills/` for Gemini CLI, `.cursor/skills/` for Cursor
+- Agent skills are written per-agent format: `.claude/skills/` for Claude Code, `.agents/skills/` for Codex, `.gemini/skills/` for Gemini CLI, `.cursor/skills/` for Cursor, `.devin/skills/` for Devin

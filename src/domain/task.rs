@@ -87,12 +87,20 @@ pub enum AgentCli {
     Codex,
     Gemini,
     Cursor,
+    Devin,
     None,
 }
 
 impl AgentCli {
     pub fn all() -> &'static [AgentCli] {
-        &[AgentCli::Claude, AgentCli::Codex, AgentCli::Gemini, AgentCli::Cursor, AgentCli::None]
+        &[
+            AgentCli::Claude,
+            AgentCli::Codex,
+            AgentCli::Gemini,
+            AgentCli::Cursor,
+            AgentCli::Devin,
+            AgentCli::None,
+        ]
     }
 
     pub fn command(&self) -> Option<&'static str> {
@@ -101,6 +109,7 @@ impl AgentCli {
             AgentCli::Codex => Some("codex"),
             AgentCli::Gemini => Some("gemini"),
             AgentCli::Cursor => Some("agent"),
+            AgentCli::Devin => Some("devin"),
             AgentCli::None => None,
         }
     }
@@ -111,6 +120,7 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo", cmd),
             AgentCli::Cursor => format!("{} --yolo", cmd),
+            AgentCli::Devin => format!("{} --permission-mode bypass", cmd),
             _ => cmd.to_string(),
         })
     }
@@ -123,6 +133,7 @@ impl AgentCli {
             AgentCli::Codex => format!("{} -q", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo -p", cmd),
             AgentCli::Cursor => format!("{} --yolo -p", cmd),
+            AgentCli::Devin => format!("{} --permission-mode bypass -p", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -134,6 +145,7 @@ impl AgentCli {
             AgentCli::Codex => format!("{} -q", cmd), // Codex -q doesn't support resume
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume -p", cmd),
             AgentCli::Cursor => format!("{} --yolo --continue -p", cmd),
+            AgentCli::Devin => format!("{} --permission-mode bypass -p", cmd), // Devin --continue doesn't accept an inline prompt
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -147,6 +159,7 @@ impl AgentCli {
             AgentCli::Codex => format!("{} resume --last", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo --resume", cmd),
             AgentCli::Cursor => format!("{} --yolo --continue", cmd),
+            AgentCli::Devin => format!("{} --permission-mode bypass --continue", cmd),
             AgentCli::None => unreachable!("command() returns None for AgentCli::None"),
         })
     }
@@ -159,6 +172,7 @@ impl fmt::Display for AgentCli {
             AgentCli::Codex => write!(f, "Codex"),
             AgentCli::Gemini => write!(f, "Gemini CLI"),
             AgentCli::Cursor => write!(f, "Cursor"),
+            AgentCli::Devin => write!(f, "Devin"),
             AgentCli::None => write!(f, "None"),
         }
     }

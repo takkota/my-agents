@@ -115,6 +115,7 @@ impl EditProjectModal {
             ("Codex".to_string(), AgentCli::Codex),
             ("Gemini".to_string(), AgentCli::Gemini),
             ("Cursor".to_string(), AgentCli::Cursor),
+            ("Devin".to_string(), AgentCli::Devin),
         ];
         let mut pm_agent_cli_list = SelectList::new("PM Agent CLI", pm_agent_items);
         if let Some(cli) = current_pm_agent_cli {
@@ -123,6 +124,7 @@ impl EditProjectModal {
                 AgentCli::Codex => 1,
                 AgentCli::Gemini => 2,
                 AgentCli::Cursor => 3,
+                AgentCli::Devin => 4,
                 AgentCli::None => 0,
             };
             pm_agent_cli_list.selected = idx;
