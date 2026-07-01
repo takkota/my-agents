@@ -120,7 +120,10 @@ impl AgentCli {
             AgentCli::Claude => format!("{} --dangerously-skip-permissions", cmd),
             AgentCli::Gemini => format!("{} --approval-mode=yolo", cmd),
             AgentCli::Cursor => format!("{} --yolo", cmd),
-            AgentCli::Devin => format!("{} --permission-mode bypass", cmd),
+            AgentCli::Devin => format!(
+                "{} --respect-workspace-trust true --permission-mode bypass",
+                cmd
+            ),
             _ => cmd.to_string(),
         })
     }
