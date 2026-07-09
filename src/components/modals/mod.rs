@@ -10,6 +10,7 @@ pub mod edit_item;
 pub mod filter;
 pub mod sort;
 pub mod settings;
+pub mod github_settings;
 pub mod input;
 
 use crate::action::Action;

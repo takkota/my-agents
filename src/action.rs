@@ -125,6 +125,17 @@ pub enum Action {
         index: usize,
     },
 
+    // GitHub Issue monitor
+    OpenGithubSettings,
+    SaveGithubSettings {
+        project_id: String,
+        enabled: bool,
+        repos: Vec<String>,
+        labels: Vec<String>,
+        agent_cli: Option<AgentCli>,
+        initial_prompt: Option<String>,
+    },
+
     // Focus & scroll
     CycleFocus,
     ScrollUp,

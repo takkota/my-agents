@@ -1717,6 +1717,11 @@ ma-task create --project {project_id} --name "タスク名" --priority P3
             pm_custom_instructions: None,
             pm_cron_expression: None,
             pm_tmux_session: None,
+            issue_monitor_enabled: false,
+            issue_monitor_repos: Vec::new(),
+            issue_monitor_labels: Vec::new(),
+            issue_monitor_agent_cli: None,
+            issue_monitor_initial_prompt: None,
             created_at: now,
             updated_at: now,
         };

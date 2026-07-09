@@ -17,6 +17,8 @@ pub struct Config {
     pub monitor_interval_secs: u64,
     #[serde(default = "default_pr_monitor_interval")]
     pub pr_monitor_interval_secs: u64,
+    #[serde(default = "default_issue_monitor_interval")]
+    pub issue_monitor_interval_secs: u64,
     #[serde(default)]
     pub default_sort_mode: SortMode,
     #[serde(default = "default_pr_prompt")]
@@ -49,6 +51,10 @@ fn default_pr_monitor_interval() -> u64 {
     30
 }
 
+fn default_issue_monitor_interval() -> u64 {
+    60
+}
+
 fn default_pr_prompt() -> String {
     "If any code changes were made during this task, you MUST create a Pull Request before marking the task as completed.".to_string()
 }
@@ -65,6 +71,7 @@ impl Default for Config {
             tick_rate_ms: default_tick_rate(),
             monitor_interval_secs: default_monitor_interval(),
             pr_monitor_interval_secs: default_pr_monitor_interval(),
+            issue_monitor_interval_secs: default_issue_monitor_interval(),
             default_sort_mode: SortMode::default(),
             pr_prompt: default_pr_prompt(),
             review_prompt: default_review_prompt(),

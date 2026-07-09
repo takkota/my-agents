@@ -7,3 +7,4 @@ pub mod pr_monitor;
 pub mod task_setup;
 pub mod pm_scheduler;
 pub mod session_restore;
+pub mod issue_monitor;
