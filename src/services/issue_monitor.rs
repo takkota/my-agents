@@ -8,6 +8,16 @@ use std::sync::mpsc;
 /// Claimed issues are excluded from subsequent scans.
 pub const CLAIM_LABEL: &str = "on my-task";
 
+/// Returns true if the issue already carries the claim label (case-insensitive,
+/// exact match on the whole label name). Matching the full label name — rather
+/// than relying on gh's search query quoting — correctly handles
+/// space-containing labels like "on my-task".
+fn is_claimed(labels: &[String]) -> bool {
+    labels
+        .iter()
+        .any(|l| l.eq_ignore_ascii_case(CLAIM_LABEL))
+}
+
 /// A candidate project scan: which repos to check and the matching config.
 #[derive(Debug, Clone)]
 struct ScanProject {
@@ -119,13 +129,11 @@ impl IssueMonitor {
                     };
 
                     for issue in issues {
-                        // Skip already-claimed issues (defensive: the gh search
-                        // should already exclude them, but enforce client-side).
-                        if issue
-                            .labels
-                            .iter()
-                            .any(|l| l.eq_ignore_ascii_case(CLAIM_LABEL))
-                        {
+                        // Exclude already-claimed issues. We filter client-side
+                        // (not via gh --search) so that space-containing label
+                        // names like "on my-task" are matched reliably
+                        // regardless of gh/GraphQL search quoting behavior.
+                        if is_claimed(&issue.labels) {
                             continue;
                         }
                         // Claim the issue by adding the label. Only emit an
@@ -260,7 +268,11 @@ struct GhLabel {
 
 /// List open issues in the repo that have ALL of the given labels (AND).
 /// When no labels are specified, all open issues are returned.
-/// Already-claimed issues (with `on my-task`) are excluded via `--search`.
+///
+/// Already-claimed issues (with `on my-task`) are NOT filtered here — callers
+/// must exclude them via the returned `labels`. We avoid relying on gh's
+/// `--search` query syntax for label exclusion because quoting of
+/// space-containing label names is fragile across gh/GraphQL layers.
 fn list_issues(owner_repo: &str, labels: &[String]) -> anyhow::Result<Vec<Issue>> {
     let mut args = vec![
         "issue".to_string(),
@@ -278,9 +290,6 @@ fn list_issues(owner_repo: &str, labels: &[String]) -> anyhow::Result<Vec<Issue>
         args.push("--label".to_string());
         args.push(label.clone());
     }
-    // Exclude already-claimed issues.
-    args.push("--search".to_string());
-    args.push(format!("-label:\"{}\"", CLAIM_LABEL));
 
     let output = Command::new("gh").args(&args).output()?;
     if !output.status.success() {
@@ -371,5 +380,29 @@ mod tests {
             Some("owner/repo".to_string())
         );
         assert_eq!(normalize_owner_repo("owner"), None);
+    }
+
+    #[test]
+    fn test_is_claimed_space_label() {
+        // Exact match on the full (space-containing) label name.
+        assert!(is_claimed(&["on my-task".to_string()]));
+        // Case-insensitive.
+        assert!(is_claimed(&["On My-Task".to_string()]));
+        assert!(is_claimed(&["ON MY-TASK".to_string()]));
+        // Among other labels.
+        assert!(is_claimed(&[
+            "bug".to_string(),
+            "on my-task".to_string()
+        ]));
+    }
+
+    #[test]
+    fn test_is_claimed_negative() {
+        assert!(!is_claimed(&[]));
+        assert!(!is_claimed(&["bug".to_string()]));
+        // Must NOT match substrings or adjacent labels — whole-name match only.
+        assert!(!is_claimed(&["my-task".to_string()]));
+        assert!(!is_claimed(&["on".to_string()]));
+        assert!(!is_claimed(&["on my-task-extra".to_string()]));
     }
 }
