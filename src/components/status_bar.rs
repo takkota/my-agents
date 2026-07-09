@@ -27,9 +27,7 @@ impl StatusBar {
             let line = Line::from(vec![
                 Span::styled(
                     " ERROR: ",
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(err, Style::default().fg(Color::Red)),
             ]);
@@ -96,6 +94,8 @@ impl StatusBar {
                     Span::styled(" Sort ", desc_style),
                     Span::styled("M", key_style),
                     Span::styled(" PM ", desc_style),
+                    Span::styled("G", key_style),
+                    Span::styled(" GitHub ", desc_style),
                     Span::styled("C", key_style),
                     Span::styled(" Settings ", desc_style),
                     Span::styled("Enter", key_style),

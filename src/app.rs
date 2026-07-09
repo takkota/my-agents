@@ -5,6 +5,7 @@ use crate::components::modals::create_task::CreateTaskModal;
 use crate::components::modals::custom_prompt::CustomPromptModal;
 use crate::components::modals::edit_item::{EditItemModal, EditProjectModal, EditTaskModal};
 use crate::components::modals::filter::FilterModal;
+use crate::components::modals::github_settings::GithubSettingsModal;
 use crate::components::modals::select_link::SelectLinkModal;
 use crate::components::modals::select_preview_url::SelectPreviewUrlModal;
 use crate::components::modals::set_link::SetLinkModal;
@@ -21,6 +22,7 @@ use crate::domain::task::{AgentCli, Priority, Status, Task, TaskLink};
 use crate::error::AppResult;
 use crate::services::agent_monitor::AgentMonitor;
 use crate::services::git_finder;
+use crate::services::issue_monitor::{IssueMonitor, IssueMonitorEvent};
 use crate::services::pm_scheduler::{PmScheduler, PmSchedulerEvent};
 use crate::services::pr_monitor::PrMonitor;
 use crate::services::session_restore;
@@ -76,6 +78,7 @@ pub struct App {
     agent_monitor: AgentMonitor,
     pr_monitor: PrMonitor,
     pm_scheduler: PmScheduler,
+    issue_monitor: IssueMonitor,
     tick_count: u64,
 
     // Filesystem change detection
@@ -124,6 +127,7 @@ pub enum ModalKind {
     ConfirmDelete(ConfirmDeleteModal),
     Settings(SettingsModal),
     CustomPrompt(CustomPromptModal),
+    GithubSettings(GithubSettingsModal),
 }
 
 impl App {
@@ -136,6 +140,7 @@ impl App {
         let agent_monitor = AgentMonitor::new(store.clone(), TmuxService::new());
         let pr_monitor = PrMonitor::new(store.clone());
         let pm_scheduler = PmScheduler::new(store.clone());
+        let issue_monitor = IssueMonitor::new();
 
         // Start background git repo scan immediately
         let (tx, rx) = mpsc::channel();
@@ -163,6 +168,7 @@ impl App {
             agent_monitor,
             pr_monitor,
             pm_scheduler,
+            issue_monitor,
             tick_count: 0,
             last_data_fingerprint: (0, 0),
             needs_full_redraw: false,
@@ -338,6 +344,7 @@ impl App {
                 ModalKind::ConfirmDelete(m) => m.handle_paste(text),
                 ModalKind::Settings(m) => m.handle_paste(text),
                 ModalKind::CustomPrompt(m) => m.handle_paste(text),
+                ModalKind::GithubSettings(m) => m.handle_paste(text),
             }
         }
     }
@@ -379,6 +386,7 @@ impl App {
                 ModalKind::ConfirmDelete(m) => m.handle_key(key),
                 ModalKind::Settings(m) => m.handle_key(key),
                 ModalKind::CustomPrompt(m) => m.handle_key(key),
+                ModalKind::GithubSettings(m) => m.handle_key(key),
             };
         }
 
@@ -483,6 +491,11 @@ impl App {
             KeyCode::Char('w') => return Ok(Some(Action::CycleFocus)),
             KeyCode::Char('G') if self.focus == FocusPane::SessionPanel => {
                 return Ok(Some(Action::ScrollToBottom));
+            }
+            KeyCode::Char('G') => {
+                if let Some(TreeItem::Project { .. }) = self.task_tree.selected_item() {
+                    return Ok(Some(Action::OpenGithubSettings));
+                }
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 return Ok(Some(match self.focus {
@@ -744,6 +757,58 @@ impl App {
                 self.active_modal = Some(ModalKind::Settings(SettingsModal::new(&self.config)));
             }
 
+            Action::OpenGithubSettings => {
+                if let Some(TreeItem::Project { id, .. }) = self.task_tree.selected_item().cloned()
+                {
+                    let project = self.projects.iter().find(|p| p.id == id).cloned();
+                    if let Some(project) = project {
+                        // Build (display_name, repo_name) pairs from the project's repos.
+                        let project_repos: Vec<(String, String)> = project
+                            .repos
+                            .iter()
+                            .map(|r| (r.name.clone(), r.name.clone()))
+                            .collect();
+                        self.active_modal = Some(ModalKind::GithubSettings(GithubSettingsModal::new(
+                            project.id,
+                            project_repos,
+                            project.issue_monitor_enabled,
+                            project.issue_monitor_repos.clone(),
+                            project.issue_monitor_labels.clone(),
+                            project.issue_monitor_agent_cli,
+                            self.config.default_agent_cli,
+                            project.issue_monitor_initial_prompt.clone(),
+                        )));
+                    }
+                }
+            }
+
+            Action::SaveGithubSettings {
+                project_id,
+                enabled,
+                repos,
+                labels,
+                agent_cli,
+                initial_prompt,
+            } => {
+                if let Some(project) = self.projects.iter().find(|p| p.id == project_id).cloned() {
+                    let mut updated = project;
+                    updated.issue_monitor_enabled = enabled;
+                    updated.issue_monitor_repos = repos;
+                    updated.issue_monitor_labels = labels;
+                    updated.issue_monitor_agent_cli = agent_cli;
+                    updated.issue_monitor_initial_prompt = initial_prompt;
+                    updated.updated_at = Utc::now();
+                    if let Err(e) = self.store.save_project(&updated) {
+                        self.error_message =
+                            Some(format!("Failed to save GitHub monitor settings: {}", e));
+                    } else {
+                        self.active_modal = None;
+                        self.reload_data()?;
+                        self.rebuild_tree();
+                    }
+                }
+            }
+
             Action::SaveSettings {
                 pr_prompt,
                 review_prompt,
@@ -814,6 +879,11 @@ impl App {
                     pm_custom_instructions,
                     pm_cron_expression,
                     pm_tmux_session: None,
+                    issue_monitor_enabled: false,
+                    issue_monitor_repos: Vec::new(),
+                    issue_monitor_labels: Vec::new(),
+                    issue_monitor_agent_cli: None,
+                    issue_monitor_initial_prompt: None,
                     created_at: now,
                     updated_at: now,
                 };
@@ -1357,6 +1427,61 @@ impl App {
                                 }
                             }
                         }
+                    }
+                }
+
+                // GitHub Issue monitor: scan every issue_monitor_interval_secs.
+                // The cross-process flock (held inside start_check) guarantees
+                // only one my-agents instance scans at a time, and the
+                // "on my-task" label claim prevents duplicate task creation.
+                let im_interval_ticks =
+                    (self.config.issue_monitor_interval_secs * 1000 / self.config.tick_rate_ms)
+                        .max(1);
+                if self.tick_count % im_interval_ticks == 0 {
+                    let lock_path = self.config.data_dir.join("issue_monitor.lock");
+                    self.issue_monitor
+                        .start_check(self.projects.clone(), lock_path);
+                }
+
+                // Poll for completed issue scan results (non-blocking)
+                let im_events = self.issue_monitor.poll_results();
+                for event in im_events {
+                    let IssueMonitorEvent {
+                        project_id,
+                        repo_full: _,
+                        number,
+                        title,
+                        url,
+                    } = event;
+                    let project =
+                        self.projects.iter().find(|p| p.id == project_id).cloned();
+                    let (agent_cli, initial_prompt) = match project {
+                        Some(p) => (
+                            p.issue_monitor_agent_cli
+                                .unwrap_or(self.config.default_agent_cli),
+                            p.issue_monitor_initial_prompt.clone(),
+                        ),
+                        None => (self.config.default_agent_cli, None),
+                    };
+                    // Reuse the exact same task-creation path as the TUI
+                    // (worktree + copy files + tmux + agent launch + prompt
+                    // with the issue URL appended as a link).
+                    if let Err(e) = self.handle_create_task(
+                        project_id.clone(),
+                        title,
+                        Priority::P3,
+                        agent_cli,
+                        Some(format!("Auto-generated from issue #{}", number)),
+                        vec![TaskLink {
+                            url,
+                            display_name: None,
+                        }],
+                        initial_prompt,
+                    ) {
+                        self.error_message =
+                            Some(format!("Issue monitor task creation failed: {}", e));
+                    } else {
+                        data_changed = true;
                     }
                 }
 
@@ -1905,6 +2030,9 @@ impl App {
                 ModalKind::Settings(m) => m.render(frame, area),
                 ModalKind::CustomPrompt(m) => {
                     m.render(frame, centered_rect_with_max(80, 60, 100, 20, area))
+                }
+                ModalKind::GithubSettings(m) => {
+                    m.render(frame, centered_rect_with_max(90, 90, 120, 44, area))
                 }
             }
         }
